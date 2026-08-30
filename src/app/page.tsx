@@ -15,10 +15,15 @@ export default async function PublicPage() {
   try {
     const [stats, validity] = await Promise.all([up.stats(), up.validity()]);
 
+    // The most recent measured daily accept rate, or null when the series is
+    // empty. The console reads the same value; the public page must not print
+    // a different one, and must not print one at all if there isn't one.
+    const acceptRate = validity.accept_rate.at(-1)?.rate ?? null;
+
     return (
       <Mirage>
         <PublicView
-          stats={publicStats(stats)}
+          stats={publicStats(stats, acceptRate)}
           validity={publicValidity(validity)}
           live={up.isLive()}
         />

@@ -8,6 +8,7 @@ import type {
   RuntimeConfig,
   SensorList,
   SessionDetail,
+  SessionReport,
   SessionsResponse,
   SessionSummary,
   ValiditySummary,
@@ -618,14 +619,22 @@ export function session(id: string): SessionDetail {
           { type: "ipv4-addr", value: base.client_ip },
         ],
       },
+      // Modelled on mirage-core, not on this app: internal/store/read.go
+      // prefers the ML pipeline's own severity (here, the seed's) and falls
+      // back to a class-only ladder for sessions enriched before it was
+      // persisted. This deliberately does NOT reuse corpus.ts severityOf --
+      // it used to, which meant the fixture corpus could never reproduce the
+      // disagreement between the derived and sensor severities that the
+      // console now shows, and no run against fixtures would ever expose it.
       severity:
-        base.bait_hit_count >= 2 || base.attacker_class === "apt"
+        seed?.sev ??
+        (base.attacker_class === "apt"
           ? "critical"
-          : base.bait_hit_count >= 1 || base.command_count >= 5
+          : base.attacker_class === "manual_recon"
             ? "high"
-            : base.command_count > 0
+            : base.attacker_class === "script_kiddie"
               ? "medium"
-              : "low",
+              : "low"),
       recommended_actions: seed?.actions ?? [
         base.command_count > 0 ? "Review the transcript before releasing the address" : "None — background noise",
       ],
@@ -763,7 +772,7 @@ export function setActiveProvider(name: string): LLMProviderListing {
 }
 
 export const policy: PolicySummary = {
-  window_days: 7,
+  sample_commands: 500,
   total_decisions: 4218,
   actions: [
     { name: "MINIMAL", count: 2547 },
@@ -798,6 +807,7 @@ export const config: RuntimeConfig = {
   limits: {
     completions_per_session: 25,
     global_rate_limit: 600,
+    rate_window_s: 60,
     policy_timeout_ms: 200,
     completion_timeout_ms: 4000,
     commands_per_session: 500,
@@ -805,15 +815,106 @@ export const config: RuntimeConfig = {
   },
 };
 
+// Mirrors mirage-core/config/weak_credentials.txt exactly. The previous
+// ten-entry list was a guess: it included git:git, which the sensor does
+// not accept, and omitted 38 pairs that it does.
 export const weakCredentials = [
-  "root:root",
   "root:123456",
+  "root:12345",
+  "root:1234",
+  "root:12345678",
+  "root:123456789",
+  "root:111111",
+  "root:123",
+  "root:123123",
+  "root:password",
+  "root:admin",
+  "root:admin123",
+  "root:qwerty",
+  "root:passw0rd",
+  "root:1q2w3e4r",
+  "root:root",
+  "root:root123",
+  "root:toor",
+  "root:changeme",
+  "root:letmein",
+  "root:default",
+  "root:P@ssw0rd",
+  "root:Passw0rd!",
   "admin:admin",
-  "support:support",
+  "admin:123456",
+  "admin:1234",
+  "admin:123456789",
+  "admin:password",
+  "admin:admin123",
+  "admin:root",
+  "admin:qwerty",
+  "admin:letmein",
   "ubuntu:ubuntu",
+  "ubuntu:123456",
+  "ubuntu:password",
   "user:user",
+  "user:123456",
+  "user:password",
   "test:test",
-  "oracle:oracle",
+  "test:123456",
+  "guest:guest",
+  "guest:12345",
+  "postgres:postgres",
+  "postgres:123456",
+  "mysql:mysql",
+  "mysql:123456",
   "pi:raspberry",
-  "git:git",
+  "support:support",
+  "oracle:oracle",
 ];
+
+// Mirrors GET /api/sessions/{id}/report. Severity here is the sensor's own,
+// so it is allowed to disagree with corpus.ts severityOf -- that divergence
+// is real and the console now shows both, labelled.
+export function sessionReport(id: string): SessionReport {
+  const detail = session(id);
+  const intel = detail.intelligence;
+
+  const fallback = (): string => {
+    switch (intel.attacker_class) {
+      case "apt":
+        return "critical";
+      case "manual_recon":
+        return "high";
+      case "script_kiddie":
+        return "medium";
+      default:
+        return "low";
+    }
+  };
+
+  return {
+    session_id: detail.session_id,
+    generated_at: String(Date.now()),
+    profile: {
+      class: intel.attacker_class,
+      confidence: intel.classifier_confidence,
+      cluster_id: intel.cluster_id,
+      severity: intel.severity ?? fallback(),
+    },
+    network: {
+      client_ip: detail.client_ip,
+      ssh_banner: detail.ssh_client_banner,
+      outcome: detail.outcome,
+    },
+    timeline: {
+      start_ms: detail.start_ms,
+      duration_ms: detail.duration_ms,
+      auth_attempts: detail.auth_attempts.length,
+      commands: detail.command_count,
+      bait_hits: detail.bait_hit_count,
+    },
+    threat_intel: {
+      mitre_techniques: intel.mitre_techniques,
+      summary: intel.session_summary,
+      recommended_actions: intel.recommended_actions,
+    },
+    stix_bundle: intel.stix_bundle ?? undefined,
+  };
+}

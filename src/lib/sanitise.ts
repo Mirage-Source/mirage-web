@@ -25,12 +25,22 @@ export interface PublicStats {
     window_start_ms: number;
     prefixes: string[];
   }[];
-  accept_rate: number;
-  shell_reached: number;
+  // How many windows the sensor found, as opposed to how many are listed
+  // above -- the list is capped, the count must not be.
+  coordinated_total: number;
+  // null when no accept-rate series is available. Never a constant: the
+  // figure the public page prints has to be one the sensor measured.
+  accept_rate: number | null;
+  shell_reached: number | null;
 }
 
-export function publicStats(s: HoneypotStats): PublicStats {
-  const authAttempts = s.top_credentials.reduce((n, c) => n + c.count, 0);
+// acceptRate comes from the validity summary, which the public page already
+// fetches alongside stats. HoneypotStats itself carries no accept rate and no
+// shell-reached count (internal/api/stats.go), which is why this used to be a
+// hardcoded 0.0279 multiplied through -- an invented number on the one surface
+// whose whole argument is that its numbers are not invented.
+export function publicStats(s: HoneypotStats, acceptRate: number | null): PublicStats {
+  const coordinated = s.coordinated_ips ?? [];
 
   return {
     total_sessions: s.total_sessions,
@@ -40,15 +50,16 @@ export function publicStats(s: HoneypotStats): PublicStats {
     top_usernames: s.top_usernames.slice(0, 6),
     ssh_banners: s.ssh_banners.slice(0, 6),
     hourly_distribution: s.hourly_distribution,
-    coordinated: (s.coordinated_ips ?? []).slice(0, 6).map((g) => ({
+    coordinated_total: coordinated.length,
+    coordinated: coordinated.slice(0, 6).map((g) => ({
       addresses: g.count,
       username: g.username,
       banner: g.ssh_client_banner,
       window_start_ms: g.window_start_ms,
       prefixes: Array.from(new Set(g.ips.map(maskIP))),
     })),
-    accept_rate: authAttempts > 0 ? 0.0279 : 0,
-    shell_reached: Math.round(s.total_sessions * 0.0279),
+    accept_rate: acceptRate,
+    shell_reached: acceptRate === null ? null : Math.round(s.total_sessions * acceptRate),
   };
 }
 

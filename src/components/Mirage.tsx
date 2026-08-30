@@ -12,6 +12,20 @@ const ENTER_MS = 2100;
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const easeIn = (x: number) => x * x * x;
 
+// Set once the entrance has played. The landscape is worth three and a half
+// seconds the first time; it is not worth them on the twentieth reload of an
+// operator dashboard, so within a tab the console comes up immediately.
+const SEEN_KEY = "mirage:entered";
+
+function alreadySeen(): boolean {
+  try {
+    return sessionStorage.getItem(SEEN_KEY) === "1";
+  } catch {
+    // Private windows and blocked site data throw on access.
+    return false;
+  }
+}
+
 export function Mirage({ children }: { children: ReactNode }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [entered, setEntered] = useState(false);
@@ -269,6 +283,15 @@ export function Mirage({ children }: { children: ReactNode }) {
 
     function frame(now: number) {
       const t = now - t0;
+      // prefers-reduced-motion previously only drove the displacement
+      // amplitude to ~0, which still repainted the whole canvas row by row at
+      // 60fps to produce a still image. Paint the settled scene once and stop
+      // scheduling frames: "stills it completely" should mean the loop stops.
+      if (reduced) {
+        draw(t, 0, 0, 0);
+        return;
+      }
+
       let wordAlpha = 0;
       let spread = 0;
       let peak = AMBIENT;
@@ -297,7 +320,12 @@ export function Mirage({ children }: { children: ReactNode }) {
     let resizeTimer: ReturnType<typeof setTimeout>;
     const onResize = () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(build, 140);
+      resizeTimer = setTimeout(() => {
+        build();
+        // Under reduced motion the frame loop has already stopped, so nothing
+        // would repaint the resized canvas without this.
+        if (reduced) draw(performance.now() - t0, 0, 0, 0);
+      }, 140);
     };
 
     let autoTimer = setTimeout(enter, AUTO_ENTER_MS);
@@ -315,7 +343,7 @@ export function Mirage({ children }: { children: ReactNode }) {
     raf = requestAnimationFrame(frame);
 
     const readyTimer = setTimeout(() => setReady(true), 900);
-    if (reduced) enter();
+    if (reduced || alreadySeen()) enter();
 
     return () => {
       cancelAnimationFrame(raf);
@@ -330,10 +358,18 @@ export function Mirage({ children }: { children: ReactNode }) {
   function enter() {
     if (enterAtRef.current !== null) return;
     enterAtRef.current = performance.now();
-    const reduced =
+
+    const skip =
       typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    window.setTimeout(() => setEntered(true), reduced ? 120 : 1150);
+      (window.matchMedia("(prefers-reduced-motion: reduce)").matches || alreadySeen());
+
+    try {
+      sessionStorage.setItem(SEEN_KEY, "1");
+    } catch {
+      // Not being able to remember costs a replay, nothing more.
+    }
+
+    window.setTimeout(() => setEntered(true), skip ? 120 : 1150);
   }
 
   useEffect(() => {

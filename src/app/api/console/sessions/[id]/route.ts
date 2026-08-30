@@ -4,7 +4,7 @@ import { behaviourOf } from "@/lib/behaviour";
 import * as geo from "@/lib/geo";
 import * as up from "@/lib/upstream";
 import { UpstreamError } from "@/lib/upstream";
-import type { SessionEnvelope } from "@/lib/types";
+import type { SessionEnvelope, SessionReport } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const detail = await up.session(id);
-    const located = geo.geoAvailable() ? await geo.resolve([detail.client_ip]) : null;
+
+    // The report carries the sensor's own severity, which the export dump does
+    // not. Fetched alongside rather than sequentially, and allowed to fail on
+    // its own: a session with no intelligence row still has a transcript worth
+    // reading, so a missing report degrades the severity badge rather than the
+    // whole pane.
+    const [located, report] = await Promise.all([
+      geo.geoAvailable() ? geo.resolve([detail.client_ip]) : Promise.resolve(null),
+      up.sessionReport(id).catch((): SessionReport | null => null),
+    ]);
+
     const hit = located?.get(detail.client_ip);
 
     const envelope: SessionEnvelope = {
@@ -29,6 +39,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         asn: hit?.asn ?? null,
         asn_name: hit?.asnName ?? null,
       },
+      report,
     };
 
     return NextResponse.json(envelope);

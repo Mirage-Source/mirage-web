@@ -78,6 +78,9 @@ export function Commands() {
         <p>
           Every captured command and the response it got, with the session context inlined. This is
           the corpus the dataset release publishes as <span className="mono">commands.jsonl</span>.
+          The export is cursor-paginated and has no query parameters, so search and the filters
+          below apply to the pages already loaded — not to the whole corpus. Load more to widen
+          them.
         </p>
       </section>
 
@@ -110,7 +113,11 @@ export function Commands() {
           </button>
         ))}
 
-        <span className="count">{loading ? "reading…" : `${fmt(rows.length)} shown`}</span>
+        <span className="count">
+          {loading
+            ? "reading…"
+            : `${fmt(rows.length)} shown · filtered within the loaded pages`}
+        </span>
       </div>
 
       {error && <p className="note">Could not read the command export — {error}</p>}

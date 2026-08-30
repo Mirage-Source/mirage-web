@@ -26,13 +26,18 @@ object, so there is nothing to un-redact in the browser.
 ## Why a server sits between the browser and the sensor
 
 mirage-core's API puts one static `X-API-Key` on every route and ships no CORS
-headers, so the browser can neither hold that key safely nor call the API
-directly.
+headers. It does accept the key as a `?api_key=` query parameter as well — a
+deliberate concession so its own embedded `/dashboard` page works from a plain
+browser navigation — but a key in a URL lands in access logs, proxy logs and
+history, so that path is not one to build on. Either way the browser has
+nowhere safe to hold a key that grants the whole corpus.
 
 Every upstream call goes through `src/lib/upstream.ts`, which is `server-only`
-and is the sole reader of `MIRAGE_API_KEY`. The browser talks exclusively to
-this app's own routes under `/api/console/*`, gated by `src/proxy.ts`.
-**Never prefix the upstream key with `NEXT_PUBLIC_`.**
+and is the sole reader of `MIRAGE_API_KEY` — including the full-corpus dump,
+which `src/lib/corpus.ts` used to fetch with its own copy of the key and its
+own headers. The browser talks exclusively to this app's own routes under
+`/api/console/*`, gated by `src/proxy.ts`. **Never prefix the upstream key with
+`NEXT_PUBLIC_`.**
 
 ---
 
@@ -116,7 +121,9 @@ src/
     fixtures.ts                  offline corpus
     auth.ts                      operator session
     centroids.ts                 country centroids for the map
-  proxy.ts                       gate on /console and /api/console
+  proxy.ts                       gate on /console and /api/console; issues
+                                 the CSP for every route (nonce on the two
+                                 dynamic ones, static policy elsewhere)
 docs/API-GAPS.md                 what this needs from mirage-core
 ```
 
@@ -136,7 +143,13 @@ displacement whose amplitude peaks at the horizon and decays with distance from
 it, which is what an inferior mirage does to light. The wordmark is painted
 *into* that buffer rather than layered over it, so the heat bends the letters
 instead of passing behind them. It settles to an ambient level afterwards and
-keeps breathing behind the data. `prefers-reduced-motion` stills it completely.
+keeps breathing behind the data. `prefers-reduced-motion` paints the settled
+scene once and stops scheduling frames — it stills it completely, rather than
+driving the displacement to zero and repainting a still image sixty times a
+second, which is what it used to do. Once the entrance has played it is
+remembered for the rest of the browser session, so a console reload comes up
+immediately.
+
 The entrance is driven by a timer rather than the frame loop, so a page that
 never composites still reaches the interface.
 
@@ -156,21 +169,30 @@ Rules for anything added later:
 
 ## What is honest about it
 
-Four things are shaped by endpoints that do not exist, and each says so in the
+Five things are shaped by endpoints that do not exist, and each says so in the
 interface rather than hiding it:
 
-- **Control is read-only.** Every flag there is an environment variable the
-  sensor reads once at start-up. Switches show real state and stay disabled;
-  `PATCH /api/console/config` answers 501.
-- **Policy figures are a sample**, folded out of one page of the command
-  export. Latency and timeouts render as `—`, not as invented numbers.
+- **Control is read-only, and reads the wrong environment.** Every flag there
+  is an environment variable read at start-up by one of *four* mirage-core
+  containers — and `mirage-api`, the one this app talks to, owns none of them.
+  What the view shows is this app's own environment, which agrees with the
+  sensor only when the two are deployed together. The view says so; switches
+  stay disabled and `PATCH /api/console/config` answers 501.
+- **Policy figures are a sample** of one page of the command export — labelled
+  as a sample of N commands, because the export has no time parameter and the
+  "last 7 days" it used to claim was not a thing the request could ask for.
+  Latency and timeouts render as `—`, not as invented numbers.
+- **Table severity is derived**, from bait and command counts, because
+  `ExportSession` carries none. The detail pane shows the sensor's own via
+  `GET /api/sessions/{id}/report` and is tagged `sensor`; the column is tagged
+  `derived`. On the bundled fixtures the two disagree on 13% of sessions.
 - **Filtering, clusters and geography are built on the full export dump**,
   cached five minutes, because no query endpoint exists.
 - **Behaviour is re-derived** from command timing rather than read from
   `session_embeddings`, so it disagrees with the real model by construction.
   Trajectory geometry and re-id embeddings are not shown at all.
 
-All four are in [docs/API-GAPS.md](docs/API-GAPS.md) with the request and
+All five are in [docs/API-GAPS.md](docs/API-GAPS.md) with the request and
 response shapes that would replace them.
 
 ---
@@ -183,3 +205,7 @@ npm run build      # production build
 npm run start      # serve the build
 npm run typecheck  # tsc --noEmit
 ```
+
+There is no `lint` script: `next lint` was removed in Next.js 16 and `next
+build` no longer lints, so the script it replaced was silently doing nothing.
+Wire up ESLint or Biome directly if you want one back.

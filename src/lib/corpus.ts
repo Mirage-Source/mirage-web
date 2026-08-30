@@ -3,19 +3,15 @@ import "server-only";
 import { countryName } from "./centroids";
 import * as fx from "./fixtures";
 import * as geo from "./geo";
-import { isLive, UpstreamError } from "./upstream";
+import { exportDump, isLive } from "./upstream";
 import type {
   ClusterSummary,
-  ExportResponse,
   ExportSession,
   GeoSummary,
   SessionQuery,
   SessionRow,
   SessionsPage,
 } from "./types";
-
-const BASE = process.env.MIRAGE_API_URL?.replace(/\/+$/, "") ?? "";
-const KEY = process.env.MIRAGE_API_KEY ?? "";
 
 const TTL_MS = 5 * 60 * 1000;
 const GEO_IP_CAP = 4000;
@@ -25,33 +21,35 @@ let inflight: Promise<ExportSession[]> | null = null;
 
 async function fetchCorpus(): Promise<ExportSession[]> {
   if (!isLive()) return fx.exportSessions();
-
-  const res = await fetch(`${BASE}/api/export`, {
-    headers: { "X-API-Key": KEY },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new UpstreamError(res.status, "/api/export", `The sensor returned ${res.status}.`);
-  }
-
-  const body = (await res.json()) as ExportResponse;
+  const body = await exportDump();
   return body.sessions;
 }
 
 export async function corpus(): Promise<ExportSession[]> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.sessions;
-  if (inflight) return inflight;
 
-  inflight = fetchCorpus()
-    .then((sessions) => {
-      cached = { at: Date.now(), sessions };
-      return sessions;
-    })
-    .finally(() => {
-      inflight = null;
-    });
+  if (!inflight) {
+    inflight = fetchCorpus()
+      .then((sessions) => {
+        cached = { at: Date.now(), sessions };
+        return sessions;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+    // A refresh that fails must not reject whoever happens to be awaiting it
+    // below; the catch here keeps the rejection from going unhandled when the
+    // stale branch returns instead.
+    inflight.catch(() => undefined);
+  }
 
+  // Stale-while-revalidate. Without this, the first request after the 5-minute
+  // TTL pays the whole export download -- and on a configured sensor that is
+  // the request that renders the console. Serving the previous corpus while
+  // the refresh runs keeps that cost off the critical path; the data is
+  // already a 5-minute approximation, so a few more seconds of staleness
+  // changes nothing. Only a genuinely empty cache waits.
+  if (cached) return cached.sessions;
   return inflight;
 }
 

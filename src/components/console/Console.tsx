@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { Clock, ToastHost } from "../ui";
@@ -17,6 +18,7 @@ import type {
   SensorList,
   SessionsPage,
   ValiditySummary,
+  WeakCredentials,
 } from "@/lib/types";
 
 export interface ConsoleData {
@@ -26,6 +28,7 @@ export interface ConsoleData {
   providers: LLMProviderListing;
   policy: PolicySummary;
   config: RuntimeConfig;
+  credentials: WeakCredentials;
   sessions: SessionsPage;
   facets: Facets;
   geoAvailable: boolean;
@@ -45,11 +48,30 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+const isTab = (v: string): v is TabId => TABS.some((t) => t.id === v);
+
 export function Console({ data }: { data: ConsoleData }) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabId>("overview");
   const [sensor, setSensor] = useState(data.validity.sensor);
   const [validity, setValidity] = useState(data.validity);
   const [cluster, setCluster] = useState<string | null>(null);
+
+  // Tab lives in the fragment rather than the query string: it needs no server
+  // round-trip and no Suspense boundary, and a reload or a shared link lands
+  // back on the same view instead of always on Overview. Read after mount so
+  // the server-rendered markup and the first client render still agree.
+  useEffect(() => {
+    const fromHash = window.location.hash.slice(1);
+    if (isTab(fromHash)) setTab(fromHash);
+
+    const onHash = () => {
+      const next = window.location.hash.slice(1);
+      if (isTab(next)) setTab(next);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   useEffect(() => {
     if (sensor === validity.sensor) return;
@@ -72,13 +94,27 @@ export function Console({ data }: { data: ConsoleData }) {
   const openCluster = useCallback((id: string) => {
     setCluster(id);
     setTab("sessions");
+    history.replaceState(null, "", "#sessions");
     window.scrollTo({ top: 0 });
   }, []);
 
   const go = (id: TabId) => {
     setTab(id);
     if (id !== "sessions") setCluster(null);
+    history.replaceState(null, "", `#${id}`);
     window.scrollTo({ top: 0 });
+  };
+
+  const signOut = async () => {
+    try {
+      await fetch("/api/auth", { method: "DELETE" });
+    } finally {
+      // Push to /login regardless: if the request failed the cookie may still
+      // be set, and refresh() makes the proxy re-decide rather than leaving a
+      // client-side cache of an authenticated console on screen.
+      router.replace("/login");
+      router.refresh();
+    }
   };
 
   return (
@@ -114,6 +150,9 @@ export function Console({ data }: { data: ConsoleData }) {
           <span className="beacon" data-live={data.live} />
           <Clock />
           {!data.live && <span>fixtures</span>}
+          <button type="button" className="signout" onClick={() => void signOut()}>
+            sign out
+          </button>
         </span>
       </header>
 
@@ -133,7 +172,7 @@ export function Console({ data }: { data: ConsoleData }) {
         {tab === "commands" && <Commands />}
         {tab === "validity" && <Validity v={validity} />}
         {tab === "policy" && <Policy policy={data.policy} providers={data.providers} />}
-        {tab === "control" && <Control config={data.config} />}
+        {tab === "control" && <Control config={data.config} credentials={data.credentials} />}
       </main>
     </ToastHost>
   );

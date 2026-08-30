@@ -35,6 +35,9 @@ function TipBox({ tip }: { tip: Tip | null }) {
   );
 }
 
+// A sensor under ~1000 arrivals an hour rendered "0.0k" on every gridline.
+const tick = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
+
 export function HourlyChart({ data }: { data: { hour: number; count: number }[] }) {
   const { tip, wrap, move, clear } = useTip();
 
@@ -55,7 +58,7 @@ export function HourlyChart({ data }: { data: { hour: number; count: number }[] 
             <g key={i}>
               <line className="gl" x1={pad.l} y1={y} x2={VW} y2={y} />
               <text className="tk" x={pad.l - 8} y={y + 3} textAnchor="end">
-                {((max * (1 - i / 2)) / 1000).toFixed(1)}k
+                {tick(max * (1 - i / 2))}
               </text>
             </g>
           );

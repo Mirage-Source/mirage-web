@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DelayPlot } from "../charts";
 import { Head, Sev, duration, fmt, stamp, useToast, words } from "../ui";
@@ -43,6 +43,14 @@ export function Sessions({
   const [sort, setSort] = useState<SessionSort>("recent");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+
+  // The cluster filter is owned by Console (the Clusters tab sets it and
+  // switches here), so it can change without any of the local setters that
+  // reset paging having run. Landing on offset 150 of a cluster with 12
+  // sessions rendered "Nothing matches" for a cluster that plainly matches.
+  useEffect(() => {
+    setOffset(0);
+  }, [cluster]);
 
   const query = useMemo(() => {
     const p = new URLSearchParams();
@@ -113,11 +121,21 @@ export function Sessions({
   const rows = page.rows;
   const lastPage = offset + PAGE >= page.total;
 
+  const body = useRef<HTMLTableSectionElement>(null);
+
   const move = (delta: number) => {
     if (rows.length === 0) return;
     const index = rows.findIndex((r) => r.session_id === selected);
+    // findIndex returns -1 with nothing selected; clamping makes the first
+    // press land on row 0 in either direction.
     const next = Math.min(Math.max(index + delta, 0), rows.length - 1);
-    setSelected(rows[next < 0 ? 0 : next].session_id);
+    setSelected(rows[next].session_id);
+
+    // Selection used to move without focus, so the highlight walked off-screen
+    // while the keydown handler stayed bound to whichever row was focused
+    // first -- two presses and the keys stopped working. Focus follows the
+    // selection now, which also scrolls it into view.
+    body.current?.querySelectorAll("tr")[next]?.focus();
   };
 
   return (
@@ -256,7 +274,9 @@ export function Sessions({
                   <th>Address</th>
                   {geoAvailable && <th>Origin</th>}
                   <th>Class</th>
-                  <th>Severity</th>
+                  <th title="Derived from bait and command counts -- the export dump carries no severity. The detail pane shows the sensor's own.">
+                    Severity <span className="th-note">derived</span>
+                  </th>
                   <th className="num">Cmds</th>
                   <th className="num">Bait</th>
                   <th className="num">Duration</th>
@@ -264,6 +284,7 @@ export function Sessions({
                 </tr>
               </thead>
               <tbody
+                ref={body}
                 onKeyDown={(e) => {
                   if (e.key === "j" || e.key === "ArrowDown") {
                     e.preventDefault();
@@ -422,7 +443,9 @@ function Detail({ id }: { id: string | null }) {
     a.href = url;
     a.download = name;
     a.click();
-    URL.revokeObjectURL(url);
+    // Revoking synchronously can beat the download in Firefox and Safari --
+    // the click is queued, not completed, when click() returns.
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }, []);
 
   const copyStix = useCallback(async () => {
@@ -442,8 +465,16 @@ function Detail({ id }: { id: string | null }) {
   if (error) return <div className="empty">{error}</div>;
   if (!data) return <div className="empty">Select a session.</div>;
 
-  const { detail, behaviour, geo } = data;
+  const { detail, behaviour, geo, report } = data;
   const intel = detail.intelligence;
+
+  // mirage-core prefers the ML pipeline's severity and falls back to a
+  // class-only derivation (internal/store/read.go:474-487); the report
+  // endpoint is the only place that resolution is exposed. Falling back to
+  // intelligence.severity keeps the pane working when the report 404s, and
+  // never to corpus.ts severityOf -- the point is that this pane is not that.
+  const severity = report?.profile.severity ?? intel.severity;
+  const severitySource = report ? "sensor" : intel.severity ? "sensor" : null;
   const baitFor = new Map(detail.bait_events.map((b) => [b.triggered_by_command_event_id, b]));
 
   const gap =
@@ -458,7 +489,8 @@ function Detail({ id }: { id: string | null }) {
       <div className="block-head tight">
         <h3>{detail.client_ip}</h3>
         <span className="aside">
-          <Sev level={intel.severity} />
+          <Sev level={severity} />
+          {severitySource && <span className="src">{severitySource}</span>}
         </span>
       </div>
 
@@ -565,7 +597,15 @@ function Detail({ id }: { id: string | null }) {
       {detail.auth_attempts.length > 0 && (
         <>
           <hr className="rule" />
-          <Head title="Credentials tried" tight aside={String(detail.auth_attempts.length)} />
+          <Head
+            title="Credentials tried"
+            tight
+            aside={
+              detail.auth_attempts.length > 12
+                ? `12 of ${detail.auth_attempts.length}`
+                : String(detail.auth_attempts.length)
+            }
+          />
           <div className="scroll-x">
             <table>
               <tbody>

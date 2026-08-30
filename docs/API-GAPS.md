@@ -57,6 +57,21 @@ BaitHitCount  int     `json:"bait_hit_count"`
 ClusterID     *string `json:"cluster_id"`
 ```
 
+`Severity` is also wanted on `ExportSession`, and for a sharper reason. The
+export carries none, so `src/lib/corpus.ts severityOf` derives one from bait
+and command counts — a third ladder, next to the ML pipeline's value and the
+class-only fallback in `internal/store/read.go:474-487`. Against the fixture
+corpus the derived and sensor severities disagree on 13% of sessions. The
+console now shows both, labelled `derived` in the table and `sensor` in the
+detail pane, but one severity on `ExportSession` would end the split outright.
+
+Note also that `GET /api/export` is unpaginated while the API sets
+`WriteTimeout: 15s` (`cmd/api/main.go`). Past that the server stops writing
+mid-JSON and the client sees a parse error, not a timeout — so the export-dump
+workaround has a hard corpus-size ceiling on the *server* side, independent of
+anything this app can do about it. `src/lib/upstream.ts exportDump` aborts at
+20s so the failure at least reports as an upstream timeout.
+
 A `facets` count endpoint (or counts alongside the page) would let the filter
 chips show totals without a second full scan.
 
@@ -100,6 +115,23 @@ told and returns `writable: false`; the console renders every switch disabled
 and `PATCH /api/console/config` answers 501 rather than accepting a change that
 would evaporate.
 
+This is worse than "the same variables, read in the wrong process". In
+`docker-compose.yml` the flags are split across **four** services —
+`mirage-core` owns the deception and LLM-shell toggles, `ml-worker` owns
+`MIRAGE_STIX_ENABLED` (hardcoded `"1"`, not read from `.env`) and
+`MIRAGE_INTEL_USE_LLM` (commented out entirely), `mirage-deception` owns the
+checkpoint and the per-session and rate limits, and `mirage-api`, the only one
+this app talks to, owns none of them. So the Control tab agrees with the sensor
+only where mirage-web is deployed from the union of three services'
+environments. The view now says so in as many words; it previously claimed the
+switches showed "the sensor's real state".
+
+One unit was simply wrong and is fixed: `MIRAGE_LLM_SHELL_GLOBAL_RATE_LIMIT`
+was rendered as `/ hr`. It pairs with `MIRAGE_LLM_SHELL_RATE_WINDOW_S`, which
+defaults to **60 seconds** (`ml/mirage/deception/completion.py:496-497`) — the
+figure was off by sixty. `RuntimeConfig.limits` now carries the window and the
+view prints both.
+
 **Ask:** a settings table, a read-through cache in the Go core and the Python
 services, and:
 
@@ -123,9 +155,14 @@ value of that whole view.
 `GET /api/export/commands`.
 
 **Workaround:** `policySummary()` folds action counts out of one 500-row page of
-the command export. That is a sample, not the seven-day window it labels, and
-it cannot produce latency or timeout figures at all — those render as `—`
-rather than as invented numbers.
+the command export. That is a sample and it cannot produce latency or timeout
+figures at all — those render as `—` rather than as invented numbers.
+
+It used to label that sample a seven-day window, which no part of the request
+supports: `GET /api/export/commands` is cursor-paginated with no time
+parameter. `PolicySummary` now carries `sample_commands` — how many commands
+the page actually held — and the view reads "Decisions in sample · of N
+commands scanned". The `window_days` field is gone.
 
 **Ask:**
 
@@ -193,7 +230,28 @@ sessions 10s.
 
 ---
 
-## Not asked for
+
+
+---
+
+## Already there, and now used
+
+Two things this document previously did not mention, found by reading
+mirage-core rather than its docs:
+
+- **`GET /api/sessions/{id}/report`** (`cmd/api/main.go`, `internal/api/report.go`)
+  returns an `AttackerProfile` with a **non-nullable** severity — the resolved
+  ML-or-fallback value — plus MITRE techniques, the LLM summary, recommended
+  actions and the STIX bundle. The session detail pane calls it now. It is the
+  only endpoint that exposes the severity resolution at all.
+
+- **`GET /api/validity/accept-rate` (with `?days=`), `/fields`, `/campaign`,
+  `/heartbeat`** exist as separate routes. This app only calls
+  `/api/validity/summary`, which is a superset — fine, but the sensor switch in
+  the console header refetches the whole summary to update one chart, and
+  `/accept-rate?days=` would be the cheaper call.
+
+## Still not asked for
 
 - **Session deletion or mutation.** The corpus is research data; the console
   should never be able to alter it.

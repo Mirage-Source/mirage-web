@@ -20,7 +20,6 @@ function geoDir(): string | null {
   const candidates = configured
     ? [configured]
     : [
-        path.resolve(process.cwd(), "..", "mirage-core-main", "mirage-core-main", "data", "geo"),
         path.resolve(process.cwd(), "..", "mirage-core", "data", "geo"),
         path.resolve(process.cwd(), "data", "geo"),
       ];
@@ -71,6 +70,7 @@ function splitRow(line: string): string[] {
 async function sweep(
   file: string,
   pending: { ip: string; n: number }[],
+  lookup: (ip: string) => GeoRecord | undefined,
   apply: (target: GeoRecord, row: string[]) => void,
 ): Promise<void> {
   const sorted = [...pending].sort((a, b) => a.n - b.n);
@@ -93,7 +93,7 @@ async function sweep(
     while (cursor < sorted.length && sorted[cursor].n < start) cursor += 1;
 
     while (cursor < sorted.length && sorted[cursor].n <= end) {
-      const target = cache.get(sorted[cursor].ip);
+      const target = lookup(sorted[cursor].ip);
       if (target) apply(target, row);
       cursor += 1;
     }
@@ -122,6 +122,12 @@ export async function resolve(ips: string[]): Promise<Map<string, GeoRecord>> {
 
   return serialise(async () => {
     const pending: { ip: string; n: number }[] = [];
+    // Records for this pass are held here, not in `cache`, until both sweeps
+    // finish. Committing them up front meant a sweep that threw (an unreadable
+    // or truncated CSV) left every address in the batch cached as permanently
+    // unresolvable for the lifetime of the process -- a transient file error
+    // became a permanent blank Origin column.
+    const staged = new Map<string, GeoRecord>();
 
     for (const ip of unique) {
       const hit = cache.get(ip);
@@ -132,28 +138,36 @@ export async function resolve(ips: string[]): Promise<Map<string, GeoRecord>> {
 
       const n = toInt(ip);
       const record: GeoRecord = { ip, country: null, asn: null, asnName: null };
-      cache.set(ip, record);
+      staged.set(ip, record);
       result.set(ip, record);
 
       if (n !== null) pending.push({ ip, n });
     }
 
-    if (pending.length === 0) return result;
+    if (pending.length === 0) {
+      // IPv6 and malformed addresses never reach a sweep, so nothing can
+      // change them later -- caching them is correct and saves the retry.
+      for (const [ip, record] of staged) cache.set(ip, record);
+      return result;
+    }
 
-    await sweep(path.join(dir, "dbip-country-lite.csv"), pending, (target, row) => {
+    const lookup = (ip: string) => staged.get(ip);
+
+    await sweep(path.join(dir, "dbip-country-lite.csv"), pending, lookup, (target, row) => {
       const code = row[2]?.trim().toUpperCase();
       if (code && code !== UNKNOWN) target.country = code;
     });
 
     const asnFile = path.join(dir, "dbip-asn-lite.csv");
     if (existsSync(asnFile)) {
-      await sweep(asnFile, pending, (target, row) => {
+      await sweep(asnFile, pending, lookup, (target, row) => {
         const asn = Number(row[2]);
         if (Number.isFinite(asn)) target.asn = asn;
         if (row[3]) target.asnName = row[3].trim();
       });
     }
 
+    for (const [ip, record] of staged) cache.set(ip, record);
     return result;
   });
 }

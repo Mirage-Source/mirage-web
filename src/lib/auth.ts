@@ -68,10 +68,23 @@ export function passwordConfigured(): boolean {
   return pw.length >= 12 && secretVal.length >= 24;
 }
 
-export function checkPassword(candidate: string): boolean {
+// Compares HMACs rather than the passwords themselves. sameString returns
+// early on a length mismatch, which over a byte-at-a-time comparison leaks
+// the length of OPERATOR_PASSWORD to anyone who can time the endpoint.
+// Hashing first makes both sides a fixed 64 hex characters, so the early
+// return can no longer fire on a real attempt and the comparison time is
+// independent of the candidate.
+export async function checkPassword(candidate: string): Promise<boolean> {
   const expected = process.env.OPERATOR_PASSWORD ?? "";
   if (!expected) return false;
-  return sameString(candidate, expected);
+
+  const k = await key();
+  const [a, b] = await Promise.all([
+    crypto.subtle.sign("HMAC", k, enc.encode(candidate)),
+    crypto.subtle.sign("HMAC", k, enc.encode(expected)),
+  ]);
+
+  return sameString(b64url(a), b64url(b));
 }
 
 export function publicViewEnabled(): boolean {

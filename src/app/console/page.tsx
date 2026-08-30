@@ -1,7 +1,7 @@
 import { Mirage } from "@/components/Mirage";
 import { Console, type ConsoleData } from "@/components/console/Console";
 import { facets, querySessions } from "@/lib/corpus";
-import { policySummary, runtimeConfig } from "@/lib/derived";
+import { policySummary, runtimeConfig, weakCredentials } from "@/lib/derived";
 import { geoAvailable } from "@/lib/geo";
 import * as up from "@/lib/upstream";
 import { UpstreamError } from "@/lib/upstream";
@@ -31,6 +31,7 @@ export default async function ConsolePage() {
       providers,
       policy,
       config,
+      credentials: weakCredentials(),
       sessions,
       facets: facetted,
       geoAvailable: geoAvailable(),

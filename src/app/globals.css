@@ -1094,3 +1094,46 @@ svg {
   margin-right: 7px;
   vertical-align: middle;
 }
+
+/* ── review additions ───────────────────────────────────────────────────── */
+
+/* Marks a column whose value this app computed rather than read from the
+   sensor. Same intent as the "derived" aside on the Behaviour panel. */
+.th-note {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-left: 6px;
+}
+
+/* Provenance tag beside a figure the sensor supplied. */
+.src {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-left: 8px;
+}
+
+.signout {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  padding: 0 0 2px;
+  cursor: pointer;
+}
+.signout:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink-3);
+}
+.signout:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: 3px;
+}

@@ -7,6 +7,7 @@ import { Bars, Figures, Head, fmt, stamp, useToast, words } from "../ui";
 import type { ConsoleData } from "./Console";
 import type {
   LLMProviderListing,
+  WeakCredentials,
   PolicySummary,
   RuntimeConfig,
   SessionsResponse,
@@ -25,10 +26,11 @@ export function Overview({
 
   const bannerTotal = stats.ssh_banners.reduce((n, b) => n + b.count, 0) || 1;
   const latest = validity.accept_rate.at(-1);
-  const acceptRate = latest ? latest.rate : 0;
-  const reachedShell = Math.round(stats.total_sessions * acceptRate);
+  const acceptRate = latest ? latest.rate : null;
 
-  const uptimeDays = (() => {
+  // Span of the accept-rate series, not uptime. It was labelled "continuous",
+  // which the Validity tab's own heartbeat-gap table can directly contradict.
+  const spanDays = (() => {
     const first = validity.accept_rate[0];
     return first
       ? Math.round((Date.now() - new Date(first.date).getTime()) / 86_400_000)
@@ -39,7 +41,7 @@ export function Overview({
     <>
       <section className="hero">
         <div className="eyebrow">
-          {validity.sensor} · {uptimeDays} days continuous
+          {validity.sensor} · {spanDays} days of data
         </div>
         <h1>An SSH server that isn&rsquo;t there, watched closely.</h1>
         <p>
@@ -62,13 +64,17 @@ export function Overview({
           },
           {
             k: "Accept rate",
-            v: `${(acceptRate * 100).toFixed(2)}%`,
-            n: latest?.flagged ? "outside band" : "within band",
+            v: acceptRate === null ? "—" : `${(acceptRate * 100).toFixed(2)}%`,
+            n: latest ? (latest.flagged ? "outside band · latest day" : "within band · latest day") : "no series yet",
           },
           {
-            k: "Reached the shell",
-            v: fmt(reachedShell),
-            n: `${(acceptRate * 100).toFixed(2)}% of sessions`,
+            // Was total_sessions x the latest day's rate, which projects one
+            // day across the entire corpus. The daily figure is the measured
+            // one; the corpus-wide count needs an endpoint that does not
+            // exist yet (docs/API-GAPS.md).
+            k: "Accepted, latest day",
+            v: latest ? fmt(Math.round(latest.n * latest.rate)) : "—",
+            n: latest ? `of ${fmt(latest.n)} sessions on ${latest.date}` : "no series yet",
           },
         ]}
       />
@@ -374,9 +380,9 @@ export function Policy({
       <Figures
         items={[
           {
-            k: `Decisions / ${policy.window_days}d`,
+            k: "Decisions in sample",
             v: fmt(policy.total_decisions),
-            n: policy.shadow_mode ? "shadow mode" : "applied live",
+            n: `of ${fmt(policy.sample_commands)} commands scanned`,
           },
           {
             k: "Latency p95",
@@ -391,7 +397,7 @@ export function Policy({
           {
             k: "Checkpoint",
             v: policy.checkpoint ?? "—",
-            n: "25-step horizon",
+            n: policy.shadow_mode ? "shadow mode" : "applied live",
             small: true,
           },
         ]}
@@ -399,7 +405,10 @@ export function Policy({
 
       <section className="block split split-2">
         <div>
-          <Head title="Action distribution" aside={`last ${policy.window_days} days`} />
+          <Head
+            title="Action distribution"
+            aside={`sample of ${fmt(policy.sample_commands)} commands`}
+          />
           {policy.total_decisions > 0 ? (
             <Bars
               items={policy.actions.map((a) => ({
@@ -561,7 +570,13 @@ const INTEL: SettingSpec[] = [
   },
 ];
 
-export function Control({ config }: { config: RuntimeConfig }) {
+export function Control({
+  config,
+  credentials,
+}: {
+  config: RuntimeConfig;
+  credentials: WeakCredentials;
+}) {
   const toast = useToast();
   const [state, setState] = useState(config);
 
@@ -620,17 +635,22 @@ export function Control({ config }: { config: RuntimeConfig }) {
         <p>
           {state.writable
             ? "Changes take effect on the next connection. No restart, no redeploy."
-            : "Read-only. Every one of these is an environment variable the sensor reads once at start-up — there is no endpoint to write them yet."}
+            : "Read-only, and read from the wrong place. Every one of these is an environment variable some sensor process reads once at start-up — there is no endpoint to ask it what it actually chose."}
         </p>
       </section>
 
       {!state.writable && (
         <p className="note">
-          <b>Nothing here is writable yet.</b> mirage-core reads all of this with{" "}
-          <span className="mono">os.Getenv</span> at process start and serves exactly one mutating
-          route, <span className="mono">POST /api/llm-shell/active</span>. The switches show the
-          sensor&rsquo;s real state and stay disabled until a runtime-config endpoint exists — see{" "}
-          <span className="mono">docs/API-GAPS.md</span>.
+          <b>Nothing here is writable, and nothing here is read from the sensor.</b> mirage-core
+          reads these with <span className="mono">os.Getenv</span> at process start, spread across
+          four containers — <span className="mono">mirage-core</span>,{" "}
+          <span className="mono">ml-worker</span> and <span className="mono">mirage-deception</span>{" "}
+          each own some, and <span className="mono">mirage-api</span>, the one this app talks to,
+          owns none of them. What follows is therefore{" "}
+          <b>this app&rsquo;s environment, not the sensor&rsquo;s</b>: it agrees only where the two
+          are deployed from the same <span className="mono">.env</span>. The one mutating route the
+          API serves is <span className="mono">POST /api/llm-shell/active</span>. See{" "}
+          <span className="mono">docs/API-GAPS.md §4</span>.
         </p>
       )}
 
@@ -656,7 +676,9 @@ export function Control({ config }: { config: RuntimeConfig }) {
               </tr>
               <tr>
                 <td className="k">Global rate limit</td>
-                <td className="num">{state.limits.global_rate_limit} / hr</td>
+                <td className="num">
+                  {state.limits.global_rate_limit} / {state.limits.rate_window_s}s
+                </td>
               </tr>
               <tr>
                 <td className="k">Policy timeout</td>
@@ -681,28 +703,36 @@ export function Control({ config }: { config: RuntimeConfig }) {
         </div>
 
         <div>
-          <Head title="Weak credentials" aside="accepted into the shell" />
+          <Head
+            title="Weak credentials"
+            aside={
+              credentials.pairs
+                ? `${fmt(credentials.total)} accepted into the shell`
+                : "not readable from here"
+            }
+          />
           <p className="note" style={{ marginBottom: 16 }}>
             Anything on this list gets in. Everything else is refused exactly the way a hardened
-            sshd refuses it. The list lives at{" "}
-            <span className="mono">config/weak_credentials.txt</span> on the sensor.
+            sshd refuses it. The file declares itself public bait data, so it is read and shown
+            whole rather than sampled.
           </p>
-          <div className="term" style={{ maxHeight: 150 }}>
-            <div className="o">
-              {[
-                "root:root",
-                "root:123456",
-                "admin:admin",
-                "support:support",
-                "ubuntu:ubuntu",
-                "user:user",
-                "test:test",
-                "oracle:oracle",
-                "pi:raspberry",
-                "git:git",
-              ].join("\n")}
-            </div>
-          </div>
+          {credentials.pairs ? (
+            <>
+              <div className="term" style={{ maxHeight: 150 }}>
+                <div className="o">{credentials.pairs.join("\n")}</div>
+              </div>
+              <div className="env" style={{ marginTop: 10 }}>
+                {credentials.path}
+              </div>
+            </>
+          ) : (
+            <p className="empty">
+              The list could not be read from this host. Point{" "}
+              <span className="mono">WEAK_CREDENTIALS_FILE</span> at the sensor&rsquo;s{" "}
+              <span className="mono">config/weak_credentials.txt</span>, or run this app beside
+              the mirage-core checkout. Nothing is shown rather than a guess at the contents.
+            </p>
+          )}
         </div>
       </section>
     </>
@@ -725,6 +755,7 @@ export function LiveFeed() {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const seen = useRef<Set<string>>(new Set());
+  const primed = useRef(false);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
 
   const pull = useCallback(async () => {
@@ -740,7 +771,10 @@ export function LiveFeed() {
       }
 
       setRows(page.sessions);
-      setFresh(incoming);
+      // On the first pull `seen` is empty, so every row looked new and the
+      // whole table flashed as arrivals. The first pull only primes it.
+      setFresh(primed.current ? incoming : new Set());
+      primed.current = true;
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -757,10 +791,13 @@ export function LiveFeed() {
     return () => clearInterval(id);
   }, [on, pull]);
 
+  // Only ticks while following. The interval exists to re-age the "N ago"
+  // column, which is pointless when the rows themselves are frozen.
   useEffect(() => {
+    if (!on) return;
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [on]);
 
   void tick;
 

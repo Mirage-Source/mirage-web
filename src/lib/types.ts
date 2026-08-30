@@ -393,14 +393,52 @@ export interface Behaviour {
   delays: number[];
 }
 
+// Mirrors internal/api/report.go. GET /api/sessions/{id}/report is the only
+// endpoint that returns a non-nullable severity: mirage-core prefers the ML
+// pipeline's own value and falls back to a class-only derivation when a
+// session predates the enrichment (internal/store/read.go:474-487). The
+// export dump carries no severity at all, which is why the sessions table
+// has to derive its own -- see corpus.ts severityOf and docs/API-GAPS.md.
+export interface SessionReport {
+  session_id: string;
+  generated_at: string;
+  profile: {
+    class: string | null;
+    confidence: number | null;
+    cluster_id: string | null;
+    severity: string;
+  };
+  network: { client_ip: string; ssh_banner: string; outcome: string };
+  timeline: {
+    start_ms: number;
+    duration_ms: number | null;
+    auth_attempts: number;
+    commands: number;
+    bait_hits: number;
+  };
+  threat_intel: {
+    mitre_techniques: string[] | null;
+    summary: string | null;
+    recommended_actions: string[] | null;
+  };
+  stix_bundle?: unknown;
+}
+
 export interface SessionEnvelope {
   detail: SessionDetail;
   behaviour: Behaviour;
   geo: { country: string | null; asn: number | null; asn_name: string | null };
+  // null when the sensor could not produce one; the pane then falls back to
+  // detail.intelligence.severity rather than showing the derived value.
+  report: SessionReport | null;
 }
 
 export interface PolicySummary {
-  window_days: number;
+  // The sensor has no policy-summary endpoint, so this is folded out of one
+  // page of GET /api/export/commands. sample_commands is how many commands
+  // that page actually held -- there is no time window involved, and the UI
+  // must not imply one.
+  sample_commands: number;
   total_decisions: number;
   actions: { name: string; count: number }[];
   recent: {
@@ -426,9 +464,22 @@ export interface RuntimeConfig {
   limits: {
     completions_per_session: number;
     global_rate_limit: number;
+    // MIRAGE_LLM_SHELL_RATE_WINDOW_S -- the window global_rate_limit is
+    // counted over. Defaults to 60s in ml/mirage/deception/completion.py,
+    // NOT an hour.
+    rate_window_s: number;
     policy_timeout_ms: number;
     completion_timeout_ms: number;
     commands_per_session: number;
     auth_delay_ms: [number, number];
   };
+}
+
+// config/weak_credentials.txt on the sensor. The file's own header declares it
+// public bait data, so reading and displaying it is safe; pairs is null when
+// the file is not reachable from wherever this app runs.
+export interface WeakCredentials {
+  path: string | null;
+  pairs: string[] | null;
+  total: number;
 }

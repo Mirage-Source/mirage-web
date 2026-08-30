@@ -7,13 +7,34 @@ export const runtime = "nodejs";
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 8;
 
+// Bounded so a spray of distinct source addresses cannot grow this without
+// limit. Expired records are swept on write; the hard cap is a backstop for
+// the case where every record is still inside its window.
+const MAX_TRACKED = 10_000;
+
 const attempts = new Map<string, { n: number; until: number }>();
+
+function sweep(now: number): void {
+  for (const [ip, rec] of attempts) {
+    if (now > rec.until) attempts.delete(ip);
+  }
+
+  // Map preserves insertion order, so the oldest entries go first. Dropping a
+  // record only forgives attempts already made -- it cannot let a caller past
+  // the check -- so this fails open by design rather than by accident.
+  while (attempts.size > MAX_TRACKED) {
+    const oldest = attempts.keys().next();
+    if (oldest.done) break;
+    attempts.delete(oldest.value);
+  }
+}
 
 function rateLimited(ip: string): boolean {
   const now = Date.now();
   const rec = attempts.get(ip);
 
   if (!rec || now > rec.until) {
+    sweep(now);
     attempts.set(ip, { n: 1, until: now + WINDOW_MS });
     return false;
   }
@@ -54,7 +75,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
   }
 
-  if (!checkPassword(password)) {
+  if (!(await checkPassword(password))) {
     return NextResponse.json({ error: "Not accepted." }, { status: 401 });
   }
 

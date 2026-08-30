@@ -3,10 +3,12 @@ import "server-only";
 import * as fx from "./fixtures";
 import type {
   ExportCommandsResponse,
+  ExportResponse,
   HoneypotStats,
   LLMProviderListing,
   SensorList,
   SessionDetail,
+  SessionReport,
   SessionsResponse,
   ValiditySummary,
 } from "./types";
@@ -123,6 +125,25 @@ export function session(id: string): Promise<SessionDetail> {
   return orFixture(
     () => get<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`, { revalidate: 0 }),
     () => fx.session(id),
+  );
+}
+
+// The full corpus dump. Deliberately routed through get() rather than a bare
+// fetch in corpus.ts: this is the one endpoint with no pagination, and the Go
+// API sets WriteTimeout: 15s (cmd/api/main.go), so past that it stops writing
+// mid-JSON and the client sees a parse error rather than a timeout. A 20s
+// abort makes the failure legible as an upstream timeout instead.
+export function exportDump(): Promise<ExportResponse> {
+  return get<ExportResponse>("/api/export", { revalidate: 0, timeoutMs: 20_000 });
+}
+
+// The only endpoint that returns an authoritative severity. Sessions that
+// predate the intelligence tables can still 404 or 500 here, so callers treat
+// a failure as "no report", not as a failed session load.
+export function sessionReport(id: string): Promise<SessionReport> {
+  return orFixture(
+    () => get<SessionReport>(`/api/sessions/${encodeURIComponent(id)}/report`, { revalidate: 0 }),
+    () => fx.sessionReport(id),
   );
 }
 

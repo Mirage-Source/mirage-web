@@ -76,12 +76,15 @@ export function PublicView({
             },
             {
               k: "Reached the shell",
-              v: fmt(stats.shell_reached),
-              n: `${(stats.accept_rate * 100).toFixed(2)}% of sessions`,
+              v: stats.shell_reached === null ? "—" : fmt(stats.shell_reached),
+              n:
+                stats.accept_rate === null
+                  ? "no accept-rate series yet"
+                  : `${(stats.accept_rate * 100).toFixed(2)}% of sessions`,
             },
             {
               k: "Coordinated windows",
-              v: String(stats.coordinated.length),
+              v: String(stats.coordinated_total),
               n: "distinct campaigns",
             },
           ]}
@@ -91,9 +94,10 @@ export function PublicView({
           <Head title="Arrival rhythm" aside="sessions per hour, UTC" />
           <HourlyChart data={stats.hourly_distribution} />
           <p className="note" style={{ marginTop: 20 }}>
-            Automated traffic does not sleep, but it does breathe: arrivals rise through the
-            European working day and fall back overnight, which is a property of the botnets&rsquo;
-            own scheduling rather than of anyone&rsquo;s office hours.
+            Automated traffic does not sleep, but it does breathe. Where the arrival count moves
+            with the clock it is a property of the botnets&rsquo; own scheduling rather than of
+            anyone&rsquo;s office hours — the sensor is reachable from everywhere at every hour,
+            so a flat distribution and a peaked one are both findings.
           </p>
         </section>
 
