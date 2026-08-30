@@ -53,7 +53,6 @@ export default async function ConsolePage() {
 
 function Fault({ err }: { err: unknown }) {
   const upstream = err instanceof UpstreamError;
-  const detail = err instanceof Error ? err.message : String(err);
 
   return (
     <main>
@@ -64,7 +63,12 @@ function Fault({ err }: { err: unknown }) {
 
       <div className="fault">
         <h2>{upstream ? `Upstream ${err.status}` : "Unexpected failure"}</h2>
-        <p>{detail}</p>
+        {/* Deliberately no raw err.message here -- it can carry the internal
+            MIRAGE_API_URL or a local filesystem path (see geo.ts). This is
+            already behind an authenticated gate, but keep the same
+            no-interpolation discipline the public page's catch block uses,
+            as defense-in-depth against any future auth-bypass bug. */}
+        <p>Something between this app and the sensor failed.</p>
       </div>
 
       <div className="fault">

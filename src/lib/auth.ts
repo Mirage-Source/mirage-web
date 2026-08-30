@@ -58,7 +58,14 @@ export async function isValid(token: string | undefined): Promise<boolean> {
 }
 
 export function passwordConfigured(): boolean {
-  return Boolean(process.env.OPERATOR_PASSWORD && process.env.SESSION_SECRET);
+  // Length floors, not just truthiness -- SETUP.md's own quick-demo line
+  // ("OPERATOR_PASSWORD=whatever SESSION_SECRET=whatever-long-string") is
+  // exactly the kind of value that could otherwise survive into a reachable
+  // deployment with no warning. Falling short is treated identically to
+  // "not configured" (same fail-closed path callers already handle).
+  const pw = process.env.OPERATOR_PASSWORD ?? "";
+  const secretVal = process.env.SESSION_SECRET ?? "";
+  return pw.length >= 12 && secretVal.length >= 24;
 }
 
 export function checkPassword(candidate: string): boolean {

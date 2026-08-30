@@ -23,6 +23,13 @@ function rateLimited(ip: string): boolean {
 }
 
 function sourceOf(req: NextRequest): string {
+  // cf-connecting-ip is set authoritatively by Cloudflare's edge (how this
+  // app is actually exposed) and cannot be forged by the client, unlike
+  // x-forwarded-for -- Cloudflare appends to, rather than overwrites, an
+  // existing XFF chain, so trusting index [0] there lets an attacker set
+  // their own value and defeat rate limiting entirely.
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
   const fwd = req.headers.get("x-forwarded-for");
   return fwd?.split(",")[0].trim() || "local";
 }
