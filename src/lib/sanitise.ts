@@ -40,7 +40,7 @@ export function publicStats(s: HoneypotStats): PublicStats {
     top_usernames: s.top_usernames.slice(0, 6),
     ssh_banners: s.ssh_banners.slice(0, 6),
     hourly_distribution: s.hourly_distribution,
-    coordinated: s.coordinated_ips.slice(0, 6).map((g) => ({
+    coordinated: (s.coordinated_ips ?? []).slice(0, 6).map((g) => ({
       addresses: g.count,
       username: g.username,
       banner: g.ssh_client_banner,

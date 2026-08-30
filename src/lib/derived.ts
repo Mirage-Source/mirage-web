@@ -11,7 +11,7 @@ export async function policySummary(): Promise<PolicySummary> {
   if (!isLive()) return fx.policy;
 
   const page = await commandExport(undefined, 500);
-  const decided = page.commands.filter((c) => c.deception_action !== null);
+  const decided = (page.commands ?? []).filter((c) => c.deception_action !== null);
 
   const counts = new Map<string, number>(ACTIONS.map((a) => [a, 0]));
   for (const c of decided) {

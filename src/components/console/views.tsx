@@ -131,7 +131,7 @@ export function Overview({
               </tr>
             </thead>
             <tbody>
-              {stats.coordinated_ips.slice(0, 8).map((g) => (
+              {(stats.coordinated_ips ?? []).slice(0, 8).map((g) => (
                 <tr key={`${g.username}-${g.window_start_ms}`}>
                   <td className="k mono">
                     {g.username} / {g.credential}
