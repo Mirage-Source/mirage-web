@@ -27,8 +27,8 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/mirage/mirage-web
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin master
+            git reset --hard origin/master
             # mirage-core must already be up: its compose file owns the
             # mirage_net network this joins as external (see
             # docker-compose.yml here).
