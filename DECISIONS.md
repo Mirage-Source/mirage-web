@@ -194,3 +194,24 @@ provision a scoped, non-root deploy user on the VPS instead of `root`
 
 **My answer before seeing yours:** n/a — user directed "might be a deploy
 only [key], use another deploy only key" before an approach was proposed.
+
+---
+
+## 2026-09-05 — Session tokens bind to a password fingerprint, not just expiry
+
+**Chose:** `issue()`/`isValid()` (`src/lib/auth.ts`) now sign
+`${exp}.${sha256(OPERATOR_PASSWORD)}` instead of just `${exp}`. The
+fingerprint is folded into the signed message, never the cookie itself.
+
+**Why:** Rotating `OPERATOR_PASSWORD` earlier this session did nothing to
+existing `/console` sessions — the old token format only ever signed `exp`
+with `SESSION_SECRET`, so a cookie issued before a rotation kept verifying
+after it. A password rotation should force re-login; this makes that
+automatic with no session store or revocation list to maintain.
+
+**Alternative considered:** A manually-bumped `OPERATOR_SESSION_VERSION` env
+var baked into the signed payload — more flexible (forces logout without
+touching the password) but adds a second knob to remember to turn.
+
+**My answer before seeing yours:** n/a — asked via AskUserQuestion; picked
+the password-fingerprint approach over the version-counter alternative.

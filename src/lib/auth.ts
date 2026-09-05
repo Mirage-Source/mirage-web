@@ -34,9 +34,19 @@ function sameString(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// Folded into the signed message (not the token itself) so a cookie issued
+// under the old password stops verifying the moment OPERATOR_PASSWORD is
+// rotated -- no session store, no revocation list, nothing to remember to
+// clear by hand.
+async function passwordFingerprint(): Promise<string> {
+  const pw = process.env.OPERATOR_PASSWORD ?? "";
+  return b64url(await crypto.subtle.digest("SHA-256", enc.encode(pw)));
+}
+
 export async function issue(): Promise<{ value: string; maxAge: number }> {
   const exp = Math.floor(Date.now() / 1000) + TTL_SECONDS;
-  const sig = await crypto.subtle.sign("HMAC", await key(), enc.encode(String(exp)));
+  const fp = await passwordFingerprint();
+  const sig = await crypto.subtle.sign("HMAC", await key(), enc.encode(`${exp}.${fp}`));
   return { value: `${exp}.${b64url(sig)}`, maxAge: TTL_SECONDS };
 }
 
@@ -50,7 +60,8 @@ export async function isValid(token: string | undefined): Promise<boolean> {
   if (!Number.isFinite(exp) || exp * 1000 < Date.now()) return false;
 
   try {
-    const sig = await crypto.subtle.sign("HMAC", await key(), enc.encode(String(exp)));
+    const fp = await passwordFingerprint();
+    const sig = await crypto.subtle.sign("HMAC", await key(), enc.encode(`${exp}.${fp}`));
     return sameString(token.slice(dot + 1), b64url(sig));
   } catch {
     return false;
