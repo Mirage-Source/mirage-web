@@ -803,7 +803,9 @@ export const config: RuntimeConfig = {
   stix_enabled: true,
   intel_use_llm: false,
   public_view: true,
-  writable: false,
+  writable: [],
+  updated_at: null,
+  updated_by: null,
   limits: {
     completions_per_session: 25,
     global_rate_limit: 600,

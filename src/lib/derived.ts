@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import * as fx from "./fixtures";
-import { commandExport } from "./upstream";
+import { commandExport, sensorConfig } from "./upstream";
 import { isLive } from "./upstream";
 import type { PolicySummary, RuntimeConfig, WeakCredentials } from "./types";
 
@@ -50,14 +50,25 @@ const flag = (name: string, fallback: boolean): boolean => {
 export async function runtimeConfig(): Promise<RuntimeConfig> {
   if (!isLive()) return fx.config;
 
+  // deception_enabled/deception_apply_actions are DB-backed now (mirage-api
+  // GET /api/config, see docs/API-GAPS.md §4) -- these two, and only these
+  // two, are what the Control tab can actually write. Everything else on
+  // this object is still this app's own environment, which only agrees with
+  // the sensor's when both are deployed from the same .env (see the note
+  // the view itself renders when writable is empty).
+  const sensor = await sensorConfig().catch(() => null);
+
   return {
-    deception_enabled: flag("MIRAGE_DECEPTION_ENABLED", false),
-    deception_apply_actions: flag("MIRAGE_DECEPTION_APPLY_ACTIONS", false),
+    deception_enabled: sensor?.deception_enabled ?? flag("MIRAGE_DECEPTION_ENABLED", false),
+    deception_apply_actions:
+      sensor?.deception_apply_actions ?? flag("MIRAGE_DECEPTION_APPLY_ACTIONS", false),
     llm_shell_enabled: flag("MIRAGE_LLM_SHELL_ENABLED", false),
     stix_enabled: flag("MIRAGE_STIX_ENABLED", true),
     intel_use_llm: flag("MIRAGE_INTEL_USE_LLM", false),
     public_view: process.env.PUBLIC_VIEW !== "false",
-    writable: false,
+    writable: sensor ? ["deception_enabled", "deception_apply_actions"] : [],
+    updated_at: sensor?.updated_at ?? null,
+    updated_by: sensor?.updated_by ?? null,
     limits: {
       completions_per_session: Number(process.env.MIRAGE_LLM_SHELL_MAX_PER_SESSION ?? 25),
       global_rate_limit: Number(process.env.MIRAGE_LLM_SHELL_GLOBAL_RATE_LIMIT ?? 600),

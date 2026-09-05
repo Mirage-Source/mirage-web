@@ -132,19 +132,25 @@ defaults to **60 seconds** (`ml/mirage/deception/completion.py:496-497`) — the
 figure was off by sixty. `RuntimeConfig.limits` now carries the window and the
 view prints both.
 
-**Ask:** a settings table, a read-through cache in the Go core and the Python
-services, and:
+**Partially done (2026-09-05):** `deception_apply_actions` — the one that
+matters, the shadow-mode switch — and `deception_enabled` are live. mirage-core
+gained a `runtime_flags` Postgres table plus `GET/PUT /api/config`; `Runtime.PolicyEnabled`/`ApplyActions`
+became `atomic.Bool` and a background poller
+(`internal/server.watchRuntimeFlags`, every `MIRAGE_RUNTIME_FLAGS_POLL_SECONDS`,
+default 3s) applies a console toggle to an already-running sensor process —
+no restart, no redeploy, exactly as this section originally asked. `RuntimeConfig.writable`
+is now `WritableConfigKey[]`, not a single boolean, since only these two of
+the six switches on this tab are real — see mirage-core's DECISIONS.md entry
+("Runtime flags: ...") and this repo's ("`RuntimeConfig.writable` became an
+array...") for the full reasoning.
 
-```
-GET  /api/config  → { deception_enabled, deception_apply_actions,
-                      llm_shell_enabled, stix_enabled, intel_use_llm,
-                      limits: {...}, updated_at, updated_by }
-PUT  /api/config  ← partial object; applies on the next connection, no restart
-```
-
-`deception_apply_actions` is the one that matters — it is the shadow-mode
-switch, and flipping it from the console with an audit line is most of the
-value of that whole view.
+**Still open:** `llm_shell_enabled`, `stix_enabled`, `intel_use_llm`, and the
+`limits` block are still env-only, each owned by a different container
+(`mirage-core`, `ml-worker`, `mirage-deception`), with no read-through cache
+or settings-table entry of their own yet. The Control tab's per-row disabled
+state already reflects this precisely — extending the same
+`runtime_flags`-table pattern to those is the natural next step whenever
+that's worth doing.
 
 ---
 

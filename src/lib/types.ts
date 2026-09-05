@@ -453,6 +453,14 @@ export interface PolicySummary {
   checkpoint: string | null;
 }
 
+// Which switches mirage-api actually persists. Per-field, not a single
+// global boolean: mirage-core owns deception_enabled/deception_apply_actions
+// via GET/PUT /api/config (see docs/API-GAPS.md §4), but llm_shell_enabled,
+// stix_enabled and intel_use_llm are still env-only, owned by other
+// containers -- a global "writable" would have had to lie about one half or
+// the other.
+export type WritableConfigKey = "deception_enabled" | "deception_apply_actions";
+
 export interface RuntimeConfig {
   deception_enabled: boolean;
   deception_apply_actions: boolean;
@@ -460,7 +468,9 @@ export interface RuntimeConfig {
   stix_enabled: boolean;
   intel_use_llm: boolean;
   public_view: boolean;
-  writable: boolean;
+  writable: WritableConfigKey[];
+  updated_at: string | null;
+  updated_by: string | null;
   limits: {
     completions_per_session: number;
     global_rate_limit: number;

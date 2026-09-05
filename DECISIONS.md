@@ -116,3 +116,28 @@ the Suspense requirement and because the tab is pure view state the server has
 no interest in.
 
 **My answer before seeing yours:** n/a (not asked — judged mechanical).
+
+---
+
+## 2026-09-05 — `RuntimeConfig.writable` became an array of keys, not one boolean
+
+**Chose:** `writable: boolean` → `writable: WritableConfigKey[]`
+(`src/lib/types.ts`), and the `Control` view's per-row `disabled` check
+became `state.writable.includes(key)` instead of a single flag gating every
+switch identically.
+
+**Why:** mirage-core's new `GET/PUT /api/config` (docs/API-GAPS.md §4) only
+ever makes `deception_enabled`/`deception_apply_actions` real — `llm_shell_enabled`,
+`stix_enabled`, `intel_use_llm` stay env-only, owned by other containers, with
+no plan to change that soon. A single `writable` boolean has no honest value
+once only two of six switches are real: `true` would lie about the other
+four, `false` would lie about these two. This was the direct, mechanical
+consequence of that backend scoping decision (see mirage-core's DECISIONS.md,
+"Runtime flags: Postgres table + poll, not LISTEN/NOTIFY or an admin port"),
+not an independent choice made here.
+
+**Alternative considered:** none seriously — a per-field capability list is
+the only shape that can be honest about a partially-writable object.
+
+**My answer before seeing yours:** n/a — mechanical follow-through on
+mirage-core's scoping decision.

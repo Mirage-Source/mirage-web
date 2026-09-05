@@ -92,6 +92,22 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "X-API-Key": KEY, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new UpstreamError(res.status, path, text.trim() || `The sensor returned ${res.status}.`);
+  }
+
+  return (await res.json()) as T;
+}
+
 async function orFixture<T>(live: () => Promise<T>, offline: () => T): Promise<T> {
   if (!isLive()) return offline();
   return live();
@@ -173,6 +189,30 @@ export function providers(): Promise<LLMProviderListing> {
     () => get<LLMProviderListing>("/api/llm-shell/providers", { revalidate: 0 }),
     () => fx.providers,
   );
+}
+
+// The sensor's own view of the two dashboard-writable flags -- mirage-api's
+// GET /api/config, not to be confused with derived.ts's runtimeConfig(),
+// which merges this with the env-only fields the sensor's process doesn't
+// own. Never falls back to a fixture on failure the way get() normally
+// would: derived.ts needs to know a fetch failed so it can report `writable:
+// []` truthfully rather than silently showing fixture data as if it came
+// from a reachable sensor.
+interface SensorConfig {
+  deception_enabled: boolean;
+  deception_apply_actions: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export function sensorConfig(): Promise<SensorConfig> {
+  return get<SensorConfig>("/api/config", { revalidate: 0 });
+}
+
+export function updateSensorConfig(
+  patch: Partial<Pick<SensorConfig, "deception_enabled" | "deception_apply_actions">>,
+): Promise<SensorConfig> {
+  return put<SensorConfig>("/api/config", { ...patch, updated_by: "console" });
 }
 
 export function setActiveProvider(name: string): Promise<LLMProviderListing> {

@@ -13,6 +13,7 @@ import type {
   SessionsResponse,
   SessionSummary,
   ValiditySummary,
+  WritableConfigKey,
 } from "@/lib/types";
 
 export function Overview({
@@ -580,9 +581,12 @@ export function Control({
   const toast = useToast();
   const [state, setState] = useState(config);
 
+  const isWritable = (key: keyof RuntimeConfig): boolean =>
+    state.writable.includes(key as WritableConfigKey);
+
   async function set(key: keyof RuntimeConfig, value: boolean) {
-    if (!state.writable) {
-      toast("read-only — the sensor has no config endpoint yet");
+    if (!isWritable(key)) {
+      toast("read-only — the sensor doesn't own this flag");
       return;
     }
 
@@ -620,7 +624,7 @@ export function Control({
           type="checkbox"
           className="switch"
           checked={Boolean(state[s.key])}
-          disabled={!state.writable}
+          disabled={!isWritable(s.key)}
           aria-label={s.name}
           onChange={(e) => set(s.key, e.target.checked)}
         />
@@ -633,13 +637,13 @@ export function Control({
         <div className="eyebrow">Control</div>
         <h2>What the sensor does next.</h2>
         <p>
-          {state.writable
-            ? "Changes take effect on the next connection. No restart, no redeploy."
+          {state.writable.length > 0
+            ? "The two deception switches below take effect on the next connection. No restart, no redeploy. Everything else on this tab is still read-only."
             : "Read-only, and read from the wrong place. Every one of these is an environment variable some sensor process reads once at start-up — there is no endpoint to ask it what it actually chose."}
         </p>
       </section>
 
-      {!state.writable && (
+      {state.writable.length === 0 && (
         <p className="note">
           <b>Nothing here is writable, and nothing here is read from the sensor.</b> mirage-core
           reads these with <span className="mono">os.Getenv</span> at process start, spread across
@@ -651,6 +655,12 @@ export function Control({
           are deployed from the same <span className="mono">.env</span>. The one mutating route the
           API serves is <span className="mono">POST /api/llm-shell/active</span>. See{" "}
           <span className="mono">docs/API-GAPS.md §4</span>.
+        </p>
+      )}
+      {state.writable.length > 0 && state.updated_by && (
+        <p className="note">
+          Last changed by <span className="mono">{state.updated_by}</span>
+          {state.updated_at && <> at {new Date(state.updated_at).toLocaleString()}</>}.
         </p>
       )}
 
