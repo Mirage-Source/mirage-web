@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Docker runner copies only .next/standalone + .next/static (see
+  // Dockerfile) -- without this the image would need the full node_modules
+  // tree instead of Next's pruned server bundle.
+  output: "standalone",
   async headers() {
     return [
       {

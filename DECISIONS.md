@@ -141,3 +141,56 @@ the only shape that can be honest about a partially-writable object.
 
 **My answer before seeing yours:** n/a — mechanical follow-through on
 mirage-core's scoping decision.
+
+---
+
+## 2026-09-05 — Containerize mirage-web instead of keeping it a bare systemd service
+
+**Chose:** A `Dockerfile` (multi-stage, Next.js `output: "standalone"`,
+non-root runner) plus this repo's own `docker-compose.yml`, joining
+mirage-core's `mirage_net` network as `external` rather than folding this
+service into mirage-core's compose file.
+
+**Why:** The old setup reached mirage-api over `127.0.0.1:8080` (a
+host-loopback hop through Docker's published port) and resolved geo CSVs via
+a relative `../mirage-core/data/geo` guess that only worked because both
+repos happened to be sibling checkouts on the VPS. Containerizing on the
+shared network makes both dependencies explicit: `mirage-api:8080` by
+service-name DNS, and an explicit bind-mount for the geo CSVs. Folding this
+service directly into mirage-core's compose file was rejected because CI for
+each repo only ever checks out that one repo — a cross-repo build context
+would work by hand but break the moment either side's deploy workflow runs
+in isolation.
+
+**Alternative considered:** Keep the systemd service, add CI only for
+build/typecheck plus an `npm ci && npm run build && systemctl restart`
+deploy step. Rejected once containerizing was chosen as the direction — see
+the question this was decided from.
+
+**My answer before seeing yours:** n/a — asked and answered via
+AskUserQuestion; the assistant's own recommendation was "yes, containerize
+now" and that's what was picked.
+
+---
+
+## 2026-09-05 — Dedicated deploy-only SSH key for mirage-web CI, not reused from mirage-core or personal
+
+**Chose:** Generated a fresh ed25519 keypair solely for `mirage-web`'s
+`deploy.yml`, appended the public half to the VPS's `authorized_keys`, and
+set it as this repo's own `DEPLOY_KEY`/`DEPLOY_HOST`/`DEPLOY_USER`/
+`DEPLOY_PORT` secrets.
+
+**Why:** mirage-core's `DEPLOY_KEY` secret is write-only once set (GitHub
+never returns secret values via API or UI), so it could not be copied
+across. Reusing the operator's personal `~/.ssh/id_ed25519` was considered
+and rejected — a personal key granting root access is worse to have sitting
+in a second repo's Actions secrets than a purpose-built key that does
+nothing but this deploy.
+
+**Alternative considered:** Reuse the personal key (rejected, see above);
+provision a scoped, non-root deploy user on the VPS instead of `root`
+(deferred — out of scope for this pass, matches mirage-core's own
+`DEPLOY_USER=root` precedent for now).
+
+**My answer before seeing yours:** n/a — user directed "might be a deploy
+only [key], use another deploy only key" before an approach was proposed.

@@ -1,0 +1,37 @@
+services:
+  mirage-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      # Internal DNS on the shared network below -- no more bouncing off the
+      # host's 127.0.0.1:8080 loopback publish.
+      MIRAGE_API_URL: http://mirage-api:8080
+      # Explicit mount target (see volumes:) instead of the relative
+      # ../mirage-core/data/geo sibling-checkout guess src/lib/geo.ts falls
+      # back to -- that guess only ever worked because both repos happened to
+      # be checked out side by side on the host.
+      MIRAGE_GEO_DIR: /app/data/geo
+    volumes:
+      - /opt/mirage/mirage-core/data/geo:/app/data/geo:ro
+    ports:
+      # Loopback-only, same as mirage-api in mirage-core's compose --
+      # Cloudflared is the only intended entry point (see
+      # /etc/cloudflared/config.yml on the host, service: localhost:3000).
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - mirage_net
+
+networks:
+  mirage_net:
+    # Defined (as "default", renamed to this) in mirage-core's
+    # docker-compose.yml. mirage-core must be up first so this network
+    # exists; deploy.yml relies on that ordering already being true in
+    # practice since mirage-core deploys separately and stays running.
+    external: true
