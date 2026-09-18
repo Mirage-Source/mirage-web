@@ -153,6 +153,14 @@ export function exportDump(): Promise<ExportResponse> {
   return get<ExportResponse>("/api/export", { revalidate: 0, timeoutMs: 20_000 });
 }
 
+// One keyset page of the export. Pages are what a memory-capped process can
+// afford: the full dump above is tens of megabytes of JSON parsed at once.
+export function exportPage(limit: number, after?: string): Promise<ExportResponse> {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (after) q.set("after", after);
+  return get<ExportResponse>(`/api/export?${q.toString()}`, { revalidate: 0, timeoutMs: 20_000 });
+}
+
 // The only endpoint that returns an authoritative severity. Sessions that
 // predate the intelligence tables can still 404 or 500 here, so callers treat
 // a failure as "no report", not as a failed session load.

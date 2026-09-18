@@ -3,7 +3,7 @@ import "server-only";
 import { countryName } from "./centroids";
 import * as fx from "./fixtures";
 import * as geo from "./geo";
-import { exportDump, isLive } from "./upstream";
+import { exportDump, exportPage, isLive } from "./upstream";
 import type {
   ClusterSummary,
   ExportSession,
@@ -235,15 +235,57 @@ export async function clusters(): Promise<ClusterSummary[]> {
   return out.sort((a, b) => b.sessions - a.sessions);
 }
 
-export async function geography(): Promise<GeoSummary> {
-  const all = await corpus();
+// Sessions per address, and nothing else. The origins rollup is the one
+// public path that needs the whole corpus, and holding 100k+ session objects
+// resident is what pushed a 256MB container over its cap. So this walks the
+// export in keyset pages and keeps only the counts: a few thousand entries.
+const IP_TTL_MS = 15 * 60 * 1000;
+const IP_PAGE = 2000;
+const IP_MAX_PAGES = 500;
+let ipCache: { at: number; counts: Map<string, number> } | null = null;
+let ipInflight: Promise<Map<string, number>> | null = null;
 
+async function countAddresses(): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!isLive()) {
+    // Fixtures are small and already in memory; no paging to do.
+    for (const s of await corpus()) counts.set(s.client_ip, (counts.get(s.client_ip) ?? 0) + 1);
+    return counts;
+  }
+  let after: string | undefined;
+  for (let page = 0; page < IP_MAX_PAGES; page++) {
+    const body = await exportPage(IP_PAGE, after);
+    for (const s of body.sessions) counts.set(s.client_ip, (counts.get(s.client_ip) ?? 0) + 1);
+    if (!body.next_cursor || body.sessions.length === 0) break;
+    after = body.next_cursor;
+  }
+  return counts;
+}
+
+export async function ipCounts(): Promise<Map<string, number>> {
+  if (ipCache && Date.now() - ipCache.at < IP_TTL_MS) return ipCache.counts;
+  if (!ipInflight) {
+    ipInflight = countAddresses()
+      .then((counts) => {
+        ipCache = { at: Date.now(), counts };
+        return counts;
+      })
+      .finally(() => {
+        ipInflight = null;
+      });
+    ipInflight.catch(() => undefined);
+  }
+  // Stale while revalidating, same policy as the corpus cache.
+  if (ipCache) return ipCache.counts;
+  return ipInflight;
+}
+
+export async function geography(): Promise<GeoSummary> {
   if (!geo.geoAvailable()) {
     return { available: false, countries: [], asns: [], resolved: 0, unresolved: 0 };
   }
 
-  const perIP = new Map<string, number>();
-  for (const s of all) perIP.set(s.client_ip, (perIP.get(s.client_ip) ?? 0) + 1);
+  const perIP = await ipCounts();
 
   const ips = [...perIP.entries()]
     .sort((a, b) => b[1] - a[1])

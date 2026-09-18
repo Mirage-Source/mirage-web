@@ -248,6 +248,9 @@ export interface ExportResponse {
   generated_at: string;
   session_count: number;
   sessions: ExportSession[];
+  // Present when the export was asked for one page (?limit=): the opaque
+  // cursor to pass as ?after= for the next one, absent on the last page.
+  next_cursor?: string | null;
 }
 
 export interface ExportCommand {
