@@ -12,6 +12,7 @@ Next.js 16, React 19, TypeScript. No CSS framework, no chart library, no UI kit.
 | Route | Who | What it shows |
 |---|---|---|
 | `/` | anyone | Sanitised aggregates: corpus size, arrival rhythm, usernames, client banners, coordinated windows as prefixes, country and network origins, the four validity checks, dataset links |
+| `/anatomy` | anyone | An interactive explainer: the three sensors (SSH, HTTP, MCP) drawn as small wireframe worlds the reader drives step by step, with the SSH sensor's live figures cited where they apply. Two victim-side scenes (a phone, a company) are written but parked in `src/lib/anatomy/scenes/index.ts` |
 | `/console` | operator only | Overview, session explorer, geography, clusters, command corpus, validity, deception policy, runtime control |
 | `/login` | — | Operator sign-in |
 
@@ -46,6 +47,7 @@ own headers. The browser talks exclusively to this app's own routes under
 ```bash
 npm install
 npm run dev
+npm test         # the explainer's engine, geometry and scene scripts, via node --test
 ```
 
 That is the whole setup. With no `MIRAGE_API_URL` configured the app serves a
@@ -98,6 +100,7 @@ A cold pass costs a few seconds; everything after is cached.
 src/
   app/
     page.tsx                     public surface
+    anatomy/page.tsx             the explainer (server-fetched figures, honest when absent)
     console/page.tsx             operator console (server-fetched)
     login/page.tsx               sign-in
     api/auth/                    sign in / out
@@ -106,11 +109,16 @@ src/
     globals.css                  the entire design system
   components/
     Mirage.tsx                   the landscape, the heat, the way in
+    anatomy/Anatomy.tsx          the explainer: scroll frame, story panel, frame loop
     PublicView.tsx               public surface
     console/                     Console shell, Sessions, Geography,
                                  Clusters, Commands, views
     charts.tsx  ui.tsx           charts and shared primitives
   lib/
+    anatomy/                     the explainer's content model and renderer:
+                                 types, engine (path replay + validation, tested),
+                                 geometry (projection + wireframe primitives, tested),
+                                 render (canvas frame loop), scenes/ (one script per sensor)
     upstream.ts                  the only reader of MIRAGE_API_KEY
     corpus.ts                    export-backed filtering, facets, clusters, geo rollup
     geo.ts                       DB-IP resolution

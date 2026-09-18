@@ -63,6 +63,28 @@ a {
   inset: 0;
   z-index: 1;
   pointer-events: none;
+  /* Once the reader is past the hero, the dune line at the horizon sits
+     behind tables and charts on every screen; this layer deepens that band
+     only, so the sky and the sand stay. */
+}
+.veil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.7s ease;
+  background: linear-gradient(
+    180deg,
+    rgba(23, 19, 16, 0) 22%,
+    rgba(23, 19, 16, 0.36) 38%,
+    rgba(23, 19, 16, 0.36) 56%,
+    rgba(23, 19, 16, 0) 70%
+  );
+}
+.veil[data-deep="true"]::after {
+  opacity: 1;
+}
+.veil {
   /*
    * Dusk, not noon. White text has to hold over a pale sky and bright sand, so
    * the veil never drops below ~0.4 — it lifts slightly across the horizon so
@@ -267,6 +289,54 @@ main {
   font-size: 14px;
 }
 
+/* The public hero: copy on the left, the sensor drawing itself on the right. */
+.hero-split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 24px 48px;
+  align-items: end;
+}
+.hero-sketch .sketch-head {
+  font-size: 10.5px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+/* In the hero the caption flows below the drawing instead of over it: the
+   column is too narrow for both to share the frame. A floor on its height
+   keeps the page from jumping as the caption changes step. */
+.hero-sketch .sketch {
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 0;
+  border-top: 1px solid var(--rule-2);
+}
+.hero-sketch .sketch-stage {
+  position: relative;
+  height: clamp(260px, 34vh, 360px);
+}
+.hero-sketch .sketch-cap {
+  position: static;
+  width: auto;
+  min-height: 128px;
+  margin-top: 6px;
+  padding: 10px 0 0 14px;
+  background: none;
+}
+@media (max-width: 1000px) {
+  .hero-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hero-sketch .sketch-stage {
+    height: 320px;
+  }
+  .hero-sketch .sketch-cap {
+    min-height: 150px;
+  }
+}
+
 /* ── figures ───────────────────────────────────────────────────────────── */
 
 .figures {
@@ -385,6 +455,12 @@ td.num {
   padding-right: 0;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
+}
+/* A right-aligned number followed by another column needs a gutter, or the
+   count reads as the first digits of the next cell. */
+th.num:not(:last-child),
+td.num:not(:last-child) {
+  padding-right: 22px;
 }
 .scroll-x {
   overflow-x: auto;
@@ -781,7 +857,13 @@ svg {
   stroke-linejoin: round;
 }
 .bnd {
-  fill: rgba(255, 255, 255, 0.08);
+  fill: rgba(255, 255, 255, 0.15);
+}
+.coast {
+  fill: rgba(255, 255, 255, 0.06);
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 0.6;
+  stroke-linejoin: round;
 }
 .pt {
   fill: #fff;
@@ -951,6 +1033,11 @@ svg {
     flex-wrap: wrap;
     gap: 14px;
   }
+  /* Tabs take their own row rather than shrinking into an unreadable strip. */
+  .tabs {
+    order: 3;
+    flex-basis: 100%;
+  }
   .top::after {
     left: 20px;
     right: 20px;
@@ -1077,12 +1164,49 @@ svg {
   height: auto;
 }
 .dot {
-  fill: rgba(255, 255, 255, 0.62);
-  stroke: var(--ground);
-  stroke-width: 1;
+  fill: rgba(255, 255, 255, 0.9);
 }
-.dot:hover {
+.ring {
+  fill: rgba(255, 255, 255, 0.05);
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.8;
+}
+g:hover > .ring {
+  stroke: #fff;
+  fill: rgba(255, 255, 255, 0.14);
+}
+.arc {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 0.7;
+  stroke-dasharray: 2 9;
+  stroke-linecap: round;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .arc {
+    animation: arc-flow 1.5s linear infinite;
+  }
+  @keyframes arc-flow {
+    to {
+      stroke-dashoffset: -11;
+    }
+  }
+  .site-halo {
+    animation: site-halo 3.4s ease-out infinite;
+  }
+  @keyframes site-halo {
+    0% { r: 3; opacity: 0.7; }
+    100% { r: 12; opacity: 0; }
+  }
+}
+.site {
   fill: #fff;
+}
+.site-halo {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 0.8;
+  opacity: 0;
 }
 
 .bait-dot {
@@ -1136,4 +1260,314 @@ svg {
 .signout:focus-visible {
   outline: 1px solid var(--ink-2);
   outline-offset: 3px;
+}
+
+/* ── anatomy ───────────────────────────────────────────────────────────── */
+
+.anatomy .hero {
+  min-height: 62vh;
+}
+.anatomy-hint {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-top: 26px;
+}
+.anatomy-h2 {
+  margin: 0 0 14px;
+  font-size: clamp(20px, 3vw, 30px);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.anatomy-world {
+  position: relative;
+  margin: 0 -34px;
+}
+.anatomy-stage {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  overflow: hidden;
+}
+.anatomy-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/* The way in, anchored to the thing itself. */
+.anatomy-cta {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  margin-left: -1px;
+  transform: translate(-9999px, -9999px);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: rgba(23, 19, 16, 0.55);
+  border: 1px solid var(--ink);
+  padding: 9px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+  translate: -50% -100%;
+}
+.anatomy-cta::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 22px;
+  background: var(--ink);
+}
+.anatomy-cta[data-on="true"][data-show="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.anatomy-cta:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.anatomy-cta:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .anatomy-cta[data-on="true"][data-show="true"] {
+    animation: cta-breathe 3.2s ease-in-out infinite;
+  }
+  @keyframes cta-breathe {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.22); }
+    50% { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
+  }
+}
+
+.anatomy-panel {
+  position: absolute;
+  z-index: 2;
+  left: 34px;
+  bottom: 30px;
+  width: min(420px, calc(100% - 68px));
+  padding: 14px 24px 14px 16px;
+  border-left: 1px solid var(--ink-4);
+  background: linear-gradient(90deg, rgba(23, 19, 16, 0.62) 0%, rgba(23, 19, 16, 0.42) 70%, rgba(23, 19, 16, 0) 100%);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+.anatomy-stage[data-travel="true"] .anatomy-panel,
+.anatomy-stage[data-travel="true"] .anatomy-cta {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+}
+.anatomy-eyebrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.anatomy-panel h2 {
+  margin: 0;
+  font-size: clamp(19px, 2.4vw, 26px);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.anatomy-caption {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+.anatomy-detail {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.anatomy-detail::before {
+  content: "// ";
+  color: var(--ink-4);
+}
+.anatomy-live {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--ink);
+  padding-left: 10px;
+  border-left: 1px solid var(--ink-3);
+}
+.anatomy-live[data-missing="true"] {
+  color: var(--ink-3);
+  border-left-style: dashed;
+}
+.anatomy-lesson {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+  max-width: 52ch;
+}
+.anatomy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.anatomy-actions:empty {
+  display: none;
+}
+.anatomy-choice {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: rgba(23, 19, 16, 0.4);
+  border: 1px solid var(--rule);
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.anatomy-choice:hover {
+  border-color: var(--ink);
+}
+.anatomy-choice:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: 3px;
+}
+.anatomy-nav {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+.anatomy-nav button {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.anatomy-nav button:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink-3);
+}
+.anatomy-nav button:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: 3px;
+}
+
+@media (max-width: 620px) {
+  .anatomy-world {
+    margin: 0 -20px;
+  }
+  .anatomy-panel {
+    left: 20px;
+    bottom: 20px;
+    width: calc(100% - 40px);
+    padding-left: 12px;
+    max-height: 52svh;
+    overflow-y: auto;
+    background: linear-gradient(180deg, rgba(23, 19, 16, 0) 0%, rgba(23, 19, 16, 0.55) 18%);
+  }
+  .anatomy-caption {
+    font-size: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anatomy-panel,
+  .anatomy-cta {
+    transition: none;
+  }
+}
+
+/* ── the sensor sketch on the public page ──────────────────────────────── */
+
+.sketch {
+  position: relative;
+  height: clamp(340px, 46vh, 460px);
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule-2);
+}
+.sketch-stage {
+  position: absolute;
+  inset: 0;
+}
+.sketch-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.sketch-cap {
+  position: absolute;
+  left: 0;
+  bottom: 18px;
+  width: min(400px, calc(100% - 20px));
+  padding: 12px 20px 12px 14px;
+  border-left: 1px solid var(--ink-4);
+  background: linear-gradient(90deg, rgba(23, 19, 16, 0.62) 0%, rgba(23, 19, 16, 0.4) 70%, rgba(23, 19, 16, 0) 100%);
+}
+.sketch-dots {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.sketch-dots i {
+  width: 14px;
+  height: 1px;
+  background: var(--ink-4);
+}
+.sketch-dots i[data-on="true"] {
+  background: var(--ink);
+}
+.sketch-title {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+.sketch-line {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  max-width: 46ch;
+}
+.sketch-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 2px;
+}
+.sketch-link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink-3);
+}
+@media (max-width: 620px) {
+  .sketch {
+    height: 420px;
+  }
+  .sketch-cap {
+    width: calc(100% - 12px);
+  }
 }

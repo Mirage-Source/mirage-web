@@ -1,7 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { COAST } from "@/lib/coast";
+import type { Site } from "@/lib/sites";
 import { fmt } from "./ui";
 
 interface Tip {
@@ -23,6 +25,21 @@ function useTip() {
   return { tip, wrap, move, clear: () => setTip(null) };
 }
 
+// Charts draw in CSS pixels at the container's measured width rather than
+// stretching a fixed viewBox, so text and hairlines stay crisp and the chart
+// fills whatever column it is given. 900 is only the pre-measure default.
+function useWidth(ref: React.RefObject<HTMLDivElement | null>, fallback = 900) {
+  const [w, setW] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(200, Math.round(e.contentRect.width))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return w;
+}
+
 function TipBox({ tip }: { tip: Tip | null }) {
   return (
     <div
@@ -41,7 +58,7 @@ const tick = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Ma
 export function HourlyChart({ data }: { data: { hour: number; count: number }[] }) {
   const { tip, wrap, move, clear } = useTip();
 
-  const VW = 900;
+  const VW = useWidth(wrap);
   const VH = 140;
   const pad = { t: 6, r: 0, b: 20, l: 34 };
   const iw = VW - pad.l - pad.r;
@@ -51,7 +68,12 @@ export function HourlyChart({ data }: { data: { hour: number; count: number }[] 
 
   return (
     <div className="chart-wrap" ref={wrap} onMouseLeave={clear}>
-      <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none" style={{ height: 140 }}>
+      <svg
+        viewBox={`0 0 ${VW} ${VH}`}
+        style={{ height: VH }}
+        role="img"
+        aria-label={`Sessions per hour of day, UTC. Peak ${fmt(Math.max(...data.map((d) => d.count), 0))}, low ${fmt(Math.min(...data.map((d) => d.count), 0))}.`}
+      >
         {[0, 1, 2].map((i) => {
           const y = pad.t + ih * (i / 2);
           return (
@@ -126,7 +148,7 @@ export function RateChart({ data }: { data: RatePoint[] }) {
     return <div className="empty">Not enough days yet to draw a band.</div>;
   }
 
-  const VW = 900;
+  const VW = useWidth(wrap);
   const VH = 180;
   const pad = { t: 12, r: 10, b: 24, l: 40 };
   const iw = VW - pad.l - pad.r;
@@ -152,7 +174,12 @@ export function RateChart({ data }: { data: RatePoint[] }) {
 
   return (
     <div className="chart-wrap" ref={wrap} onMouseLeave={clear}>
-      <svg viewBox={`0 0 ${VW} ${VH}`} style={{ height: 180 }}>
+      <svg
+        viewBox={`0 0 ${VW} ${VH}`}
+        style={{ height: VH }}
+        role="img"
+        aria-label={`Daily accept rate over ${data.length} days against its trailing band. ${data.filter((d) => d.flagged).length} flagged. Latest ${(data[data.length - 1].rate * 100).toFixed(2)}%.`}
+      >
         {[0, 1, 2].map((i) => {
           const y = pad.t + ih * (i / 2);
           return (
@@ -173,7 +200,7 @@ export function RateChart({ data }: { data: RatePoint[] }) {
           height={Math.max(bandBottom - bandTop, 1)}
         />
         <line
-          className="gl"
+          className="al"
           x1={pad.l}
           y1={Y(mean)}
           x2={VW - pad.r}
@@ -247,24 +274,48 @@ export interface MapPoint {
   lon: number;
 }
 
-export function WorldMap({ points }: { points: MapPoint[] }) {
+// Origins as small hollow rings, with a hairline arc from each one to the
+// sensor carrying running packets. The arcs are the picture: traffic arriving
+// from everywhere at once. Rings are kept small enough to overlap without
+// smearing, so Europe's cluster stays readable.
+export function WorldMap({ points, site }: { points: MapPoint[]; site?: Site | null }) {
   const { tip, wrap, move, clear } = useTip();
 
   const VW = 720;
   const VH = 360;
   const max = Math.max(...points.map((p) => p.sessions), 1);
+  const total = points.reduce((n, p) => n + p.sessions, 0) || 1;
 
   const X = (lon: number) => ((lon + 180) / 360) * VW;
   const Y = (lat: number) => ((90 - lat) / 180) * VH;
-  const R = (n: number) => 2 + Math.sqrt(n / max) * 13;
+  const R = (n: number) => 2.2 + Math.sqrt(n / max) * 5.2;
+
+  // A quadratic arc bowed toward the top of the map, so long routes read as
+  // great-circle-ish curves rather than straight lines through the land.
+  const arc = (p: MapPoint, s: Site) => {
+    const x1 = X(p.lon), y1 = Y(p.lat), x2 = X(s.lon), y2 = Y(s.lat);
+    const d = Math.hypot(x2 - x1, y2 - y1);
+    const cx = (x1 + x2) / 2;
+    const cy = Math.min(y1, y2) - Math.min(d * 0.28, 70);
+    return `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+  };
 
   const meridians = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150];
   const parallels = [-60, -30, 0, 30, 60];
 
   return (
     <div className="chart-wrap map" ref={wrap} onMouseLeave={clear}>
-      <svg viewBox={`0 0 ${VW} ${VH}`} style={{ height: "auto", aspectRatio: "2 / 1" }}>
+      <svg
+        viewBox={`0 0 ${VW} ${VH}`}
+        style={{ height: "auto", aspectRatio: "2 / 1" }}
+        role="img"
+        aria-label={`World map of session origins by country. ${points
+          .slice(0, 3)
+          .map((p) => `${p.name} ${fmt(p.sessions)}`)
+          .join(", ")}.`}
+      >
         <rect x="0" y="0" width={VW} height={VH} fill="rgba(255,255,255,0.02)" />
+        <path className="coast" d={COAST} />
 
         {meridians.map((lon) => (
           <line key={`m${lon}`} className="gl" x1={X(lon)} y1={0} x2={X(lon)} y2={VH} />
@@ -274,18 +325,40 @@ export function WorldMap({ points }: { points: MapPoint[] }) {
         ))}
         <line className="al" x1={0} y1={Y(0)} x2={VW} y2={Y(0)} />
 
+        {site &&
+          points.map((p) => (
+            <path
+              key={`a${p.code}`}
+              className="arc"
+              d={arc(p, site)}
+              style={{
+                opacity: 0.16 + Math.min(0.6, (p.sessions / total) * 2.2),
+                animationDelay: `${(p.code.charCodeAt(0) * 7 + p.code.charCodeAt(1) * 3) % 1600}ms`,
+              }}
+            />
+          ))}
+
         {points.map((p) => (
-          <circle
+          <g
             key={p.code}
-            className="dot"
-            cx={X(p.lon)}
-            cy={Y(p.lat)}
-            r={R(p.sessions)}
             onMouseMove={(e) =>
               move(e, `${p.name} · ${fmt(p.sessions)} sessions · ${fmt(p.ips)} addresses`)
             }
-          />
+          >
+            <circle className="ring" cx={X(p.lon)} cy={Y(p.lat)} r={R(p.sessions)} />
+            <circle className="dot" cx={X(p.lon)} cy={Y(p.lat)} r={1.4} />
+          </g>
         ))}
+
+        {site && (
+          <g>
+            <circle className="site" cx={X(site.lon)} cy={Y(site.lat)} r={3} />
+            <circle className="site-halo" cx={X(site.lon)} cy={Y(site.lat)} r={7} />
+            <text className="tk" x={X(site.lon)} y={Y(site.lat) - 23} textAnchor="middle" fill="#fff">
+              sensor · {site.label.toLowerCase()}
+            </text>
+          </g>
+        )}
 
         {points.slice(0, 6).map((p) => (
           <text

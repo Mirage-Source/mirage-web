@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { SensorSketch } from "./anatomy/SensorSketch";
+import { SiteHeader } from "./SiteHeader";
 import { HourlyChart, RateChart, WorldMap, type MapPoint } from "./charts";
 import { Bars, Figures, Head, fmt, stamp } from "./ui";
 import { CENTROIDS } from "@/lib/centroids";
+import { siteOf } from "@/lib/sites";
 import type { PublicGeo, PublicStats, PublicValidity } from "@/lib/sanitise";
 
 export function PublicView({
@@ -37,29 +40,23 @@ export function PublicView({
 
   return (
     <>
-      <header className="top">
-        <span className="wordmark">MIRAGE</span>
-        <nav className="tabs" aria-label="Sections">
-          <a href="#findings">Findings</a>
-          <a href="#origins">Origins</a>
-          <a href="#validity">Validity</a>
-          <a href="#dataset">Dataset</a>
-        </nav>
-        <span className="status">
-          <span className="beacon" data-live={live} />
-          {live ? "live sensor" : "published snapshot"}
-        </span>
-      </header>
+      <SiteHeader current="findings" live={live} />
 
       <main>
-        <section className="hero">
-          <div className="eyebrow">SSH honeypot · threat intelligence · {validity.sensor}</div>
-          <h1>An SSH server that isn&rsquo;t there, watched closely.</h1>
-          <p>
-            MIRAGE runs a convincing fake SSH server on infrastructure we own, and records what
-            arrives: every credential attempt, every keystroke that follows a successful one, and
-            every reach for a file that was left out to be reached for.
-          </p>
+        <section className="hero hero-split">
+          <div>
+            <div className="eyebrow">SSH honeypot · threat intelligence · {validity.sensor}</div>
+            <h1>An SSH server that isn&rsquo;t there, watched closely.</h1>
+            <p>
+              MIRAGE runs a convincing fake SSH server on infrastructure we own, and records what
+              arrives: every credential attempt, every keystroke that follows a successful one, and
+              every reach for a file that was left out to be reached for.
+            </p>
+          </div>
+          <div className="hero-sketch" id="how">
+            <div className="sketch-head mono">how a session unfolds · the sensor, drawn · plays on its own</div>
+            <SensorSketch />
+          </div>
         </section>
 
         <Figures
@@ -171,6 +168,7 @@ export function PublicView({
           <section className="block" id="origins">
             <Head title="Where it comes from" aside="country attribution, aggregate only" />
             <WorldMap
+              site={siteOf(validity.sensor)}
               points={
                 geo.countries
                   .filter((c) => CENTROIDS[c.code])

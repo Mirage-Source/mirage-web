@@ -28,6 +28,7 @@ function alreadySeen(): boolean {
 
 export function Mirage({ children }: { children: ReactNode }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const veilRef = useRef<HTMLDivElement>(null);
   const [entered, setEntered] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -337,6 +338,15 @@ export function Mirage({ children }: { children: ReactNode }) {
       autoTimer = setTimeout(enter, AUTO_ENTER_MS);
     };
 
+    // Past the hero the horizon band deepens (see .veil::after) so the dune
+    // line stops reading through tables and charts.
+    const onScroll = () => {
+      const v = veilRef.current;
+      if (v) v.dataset.deep = String(window.scrollY > window.innerHeight * 0.6);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+
     build();
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
@@ -351,6 +361,7 @@ export function Mirage({ children }: { children: ReactNode }) {
       clearTimeout(readyTimer);
       clearTimeout(autoTimer);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
@@ -389,7 +400,7 @@ export function Mirage({ children }: { children: ReactNode }) {
   return (
     <>
       <canvas ref={canvasRef} className="scene" aria-hidden="true" />
-      <div className="veil" />
+      <div className="veil" ref={veilRef} />
 
       {!entered && (
         <button

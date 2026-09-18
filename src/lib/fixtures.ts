@@ -119,7 +119,7 @@ export const stats: HoneypotStats = {
       username: "support",
       credential: "support",
       ssh_client_banner: BANNERS[0],
-      window_start_ms: NOW - 3 * DAY,
+      window_start_ms: NOW - 3 * DAY - 7 * 3_600_000 - 19 * 60_000,
     },
     {
       count: 7,
@@ -130,7 +130,7 @@ export const stats: HoneypotStats = {
       username: "admin",
       credential: "admin",
       ssh_client_banner: BANNERS[0],
-      window_start_ms: NOW - 5 * DAY,
+      window_start_ms: NOW - 5 * DAY - 13 * 3_600_000 - 1 * 60_000,
     },
     {
       count: 6,
@@ -141,7 +141,7 @@ export const stats: HoneypotStats = {
       username: "root",
       credential: "123456",
       ssh_client_banner: BANNERS[1],
-      window_start_ms: NOW - 8 * DAY,
+      window_start_ms: NOW - 8 * DAY - 2 * 3_600_000 - 14 * 60_000,
     },
     {
       count: 5,
@@ -149,7 +149,7 @@ export const stats: HoneypotStats = {
       username: "ubuntu",
       credential: "ubuntu",
       ssh_client_banner: BANNERS[0],
-      window_start_ms: NOW - 10 * DAY,
+      window_start_ms: NOW - 10 * DAY - 19 * 3_600_000 - 43 * 60_000,
     },
     {
       count: 4,
@@ -157,7 +157,7 @@ export const stats: HoneypotStats = {
       username: "root",
       credential: "root",
       ssh_client_banner: BANNERS[4],
-      window_start_ms: NOW - 13 * DAY,
+      window_start_ms: NOW - 13 * DAY - 11 * 3_600_000 - 47 * 60_000,
     },
     {
       count: 2,
@@ -165,7 +165,7 @@ export const stats: HoneypotStats = {
       username: "test",
       credential: "test",
       ssh_client_banner: BANNERS[1],
-      window_start_ms: NOW - 16 * DAY,
+      window_start_ms: NOW - 16 * DAY - 22 * 3_600_000 - 34 * 60_000,
     },
   ],
   hourly_distribution: HOURLY.map((count, hour) => ({ hour, count })),
@@ -695,8 +695,8 @@ const RATE_BASE = [
 ];
 
 export function validity(sensor?: string): ValiditySummary {
-  const name = sensor ?? "fra-01";
-  const secondary = name !== "fra-01";
+  const name = sensor ?? "nbg-01";
+  const secondary = name !== "nbg-01";
   const shift = secondary ? 0.4 : 0;
 
   return {
@@ -750,7 +750,7 @@ export function validity(sensor?: string): ValiditySummary {
   };
 }
 
-export const sensors: SensorList = { sensors: ["fra-01", "default"], default: "fra-01" };
+export const sensors: SensorList = { sensors: ["nbg-01", "default"], default: "nbg-01" };
 
 const providerState: LLMProviderListing = {
   configured: true,
