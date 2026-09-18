@@ -21,15 +21,24 @@ export function PublicView({
   live: boolean;
 }) {
   const [geo, setGeo] = useState<PublicGeo | null>(null);
+  // "loading" until the answer lands; "none" is an honest empty, shown as
+  // such rather than by the section quietly not existing.
+  const [geoState, setGeoState] = useState<"loading" | "ok" | "none">("loading");
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/geo")
       .then((r) => (r.ok ? r.json() : null))
       .then((g: PublicGeo | null) => {
-        if (!cancelled && g && g.countries.length > 0) setGeo(g);
+        if (cancelled) return;
+        if (g && g.countries.length > 0) {
+          setGeo(g);
+          setGeoState("ok");
+        } else setGeoState("none");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setGeoState("none");
+      });
     return () => {
       cancelled = true;
     };
@@ -163,6 +172,17 @@ export function PublicView({
           </p>
         </section>
 
+
+        {geoState === "none" && (
+          <section className="block" id="origins">
+            <Head title="Where it comes from" aside="country attribution, aggregate only" />
+            <p className="empty">
+              Origin attribution is not available right now. The sensor stores no country or
+              network; this app resolves addresses itself, and that lookup returned nothing for the
+              current corpus. Nothing else on this page depends on it.
+            </p>
+          </section>
+        )}
 
         {geo && (
           <section className="block" id="origins">
