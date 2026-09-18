@@ -1181,10 +1181,21 @@ g:hover > .ring {
   stroke-width: 0.7;
   stroke-dasharray: 2 9;
   stroke-linecap: round;
+  opacity: var(--o, 0.3);
 }
 @media (prefers-reduced-motion: no-preference) {
   .arc {
-    animation: arc-flow 1.5s linear infinite;
+    animation:
+      arc-in 0.9s ease-out var(--in, 0ms) both,
+      arc-flow var(--flow, 1.5s) linear infinite;
+  }
+  @keyframes arc-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: var(--o, 0.3);
+    }
   }
   @keyframes arc-flow {
     to {
@@ -1291,10 +1302,9 @@ g:hover > .ring {
   height: 100svh;
   overflow: hidden;
 }
-.anatomy-canvas {
+.anatomy-view {
   position: absolute;
   inset: 0;
-  display: block;
 }
 
 /* The way in, anchored to the thing itself. */
@@ -1510,7 +1520,7 @@ g:hover > .ring {
   position: absolute;
   inset: 0;
 }
-.sketch-canvas {
+.sketch-stage canvas {
   position: absolute;
   inset: 0;
   display: block;

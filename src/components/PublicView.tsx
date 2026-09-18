@@ -64,7 +64,7 @@ export function PublicView({
           </div>
           <div className="hero-sketch" id="how">
             <div className="sketch-head mono">how a session unfolds · the sensor, drawn · plays on its own</div>
-            <SensorSketch />
+            <SensorSketch sessions24h={live ? stats.sessions_last_24h : null} />
           </div>
         </section>
 

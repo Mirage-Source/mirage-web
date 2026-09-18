@@ -5,13 +5,14 @@
 
 import type { VisualState } from "./engine.ts";
 import { add, anchor, centre, lerp, mul, primitive, project, sub, viewOf, type Projected, type Segment, type View } from "./geometry.ts";
+import { layoutLabels, travelCurve, type LabelIn } from "./labels.ts";
+import type { Fonts, FrameOut, Renderer } from "./renderer.ts";
 import type { Rung } from "./scenes/index.ts";
 import type { Camera, NodeState, SceneNode, V3 } from "./types.ts";
 
 const ALPHA: Record<NodeState, number> = { hidden: 0, dim: 0.2, normal: 0.5, hot: 1, dark: 0.32 };
 const NEAR = 0.05;
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
-const easeInOut = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 const easeOut = (x: number) => 1 - Math.pow(1 - x, 3);
 
 // Distance fade: things ~20 units away are crisp, ~110 away are gone. This is
@@ -21,17 +22,6 @@ const fade = (depth: number) => clamp01(1 - (depth - 22) / 90);
 interface AssetAnim {
   from: V3;
   t0: number;
-}
-
-export interface Fonts {
-  mono: string;
-}
-
-export interface FrameOut {
-  // Screen position of the current rung's CTA anchor, or null if off-screen.
-  cta: { x: number; y: number } | null;
-  // The hovered object's screen position and text, for the tooltip.
-  hover: { x: number; y: number; label: string; blurb: string } | null;
 }
 
 // The camera a rung asks for right now: its authored camera, turned toward
@@ -79,6 +69,20 @@ export function orbitCamera(cam: Camera, yaw: number, pitch: number): Camera {
   };
 }
 
+// The camera partway through a flight from rung A to rung B: the target
+// slides between the two, and at the apex the camera has both lifted and
+// pulled back along its own arm far enough that both scenes are in frame.
+export function flightCamera(a: Camera, b: Camera, travel: number): Camera {
+  const { mix, lift } = travelCurve(travel);
+  const target = lerp(a.target, b.target, mix);
+  const position = lerp(a.position, b.position, mix);
+  const arm = sub(position, target);
+  return {
+    position: add(add(target, mul(arm, 1 + lift * 2.6)), [0, lift * 16, 0]),
+    target,
+  };
+}
+
 export interface Hit {
   key: string;
   x: number;
@@ -101,7 +105,12 @@ export function nearest(hits: Iterable<Hit>, x: number, y: number): string | nul
   return best;
 }
 
-export class WorldRenderer {
+export class WorldRenderer implements Renderer {
+  private canvas: HTMLCanvasElement | null = null;
+  private ctx: CanvasRenderingContext2D | null = null;
+  private W = 1;
+  private H = 1;
+  private DPR = 1;
   private rungs: Rung[];
   private visual: VisualState[];
   private nodeAlpha = new Map<string, number>();
@@ -120,6 +129,8 @@ export class WorldRenderer {
   private focus: string | null = null;
   private preview = new Set<string>();
   private hits = new Map<string, Hit>();
+  private activity = 0.5;
+  setActivity(level: number) { this.activity = Math.max(0, Math.min(1, level)); }
 
   nudgeOrbit(dyaw: number, dpitch: number) {
     this.orbit.yaw = Math.max(-1.2, Math.min(1.2, this.orbit.yaw + dyaw));
@@ -138,6 +149,35 @@ export class WorldRenderer {
     rungs.forEach((r, i) => {
       for (const n of r.scene.nodes) this.nodeIndex.set(`${i}:${n.id}`, { node: n, rung: i });
     });
+  }
+
+  attach(container: HTMLElement) {
+    const cv = document.createElement("canvas");
+    Object.assign(cv.style, { position: "absolute", inset: "0", display: "block" });
+    container.appendChild(cv);
+    this.canvas = cv;
+    this.ctx = cv.getContext("2d");
+  }
+
+  resize(w: number, h: number, dpr: number) {
+    this.W = w;
+    this.H = h;
+    this.DPR = Math.min(dpr, 2);
+    if (this.canvas) {
+      this.canvas.width = Math.round(w * this.DPR);
+      this.canvas.height = Math.round(h * this.DPR);
+      Object.assign(this.canvas.style, { width: `${w}px`, height: `${h}px` });
+    }
+  }
+
+  dispose() {
+    this.canvas?.remove();
+  }
+
+  frame(t: number, progress: number, reduced: boolean, fonts: Fonts): FrameOut {
+    if (!this.ctx) return { cta: null, hover: null };
+    this.ctx.setTransform(this.DPR, 0, 0, this.DPR, 0, 0);
+    return this.draw(this.ctx, this.W, this.H, t, progress, reduced, fonts);
   }
 
   // Called when a rung's path changes. Diffs asset placement so new copies
@@ -193,7 +233,7 @@ export class WorldRenderer {
     return cameraFor(this.rungs[rung], v);
   }
 
-  frame(
+  private draw(
     ctx: CanvasRenderingContext2D,
     w: number,
     h: number,
@@ -211,14 +251,7 @@ export class WorldRenderer {
     const travel = i < this.rungs.length - 1 ? clamp01((frac - 0.55) / 0.42) : 0;
     const a = this.goalFor(i);
     let goal = a;
-    if (travel > 0) {
-      const b = this.goalFor(i + 1);
-      const e = easeInOut(travel);
-      // Lift the camera through the middle of the journey so the travel reads
-      // as a pull-back and descent rather than a slide.
-      const lift: V3 = [0, Math.sin(e * Math.PI) * 24, Math.sin(e * Math.PI) * 18];
-      goal = { position: add(lerp(a.position, b.position, e), lift), target: lerp(a.target, b.target, e) };
-    }
+    if (travel > 0) goal = flightCamera(a, this.goalFor(i + 1), travel);
     // The reader's orbit rides on top of whatever the story asked for, and
     // drifts back to zero once the pointer is released.
     if (!this.dragging) {
@@ -245,7 +278,7 @@ export class WorldRenderer {
     this.ground(ctx, view);
 
     // ── nodes ──
-    const labels: { p: Projected; text: string; alpha: number }[] = [];
+    const labels: LabelIn[] = [];
     this.hits.clear();
     let hoverOut: FrameOut["hover"] = null;
     this.rungs.forEach((r, ri) => {
@@ -310,7 +343,11 @@ export class WorldRenderer {
           // A phone screen has no room for every name; it gets the ones the
           // current step is about.
           const ap = project(this.anchorOf(ri, n.id), view);
-          if (ap) labels.push({ p: ap, text: n.label, alpha: Math.min(1, alpha * 1.1) * f });
+          if (ap) {
+            ctx.font = `500 10px ${fonts.mono}`;
+            const text = n.label.toUpperCase();
+            labels.push({ x: ap.x, y: ap.y - 8, w: ctx.measureText(text).width, h: 12, text, alpha: Math.min(1, alpha * 1.1) * f, ax: ap.x, ay: ap.y });
+          }
         }
       }
     });
@@ -371,13 +408,21 @@ export class WorldRenderer {
       }
     });
 
-    // ── labels last, over everything ──
+    // ── labels last, over everything, pushed apart where they collide ──
     ctx.font = `500 10px ${fonts.mono}`;
     ctx.textBaseline = "bottom";
     ctx.textAlign = "center";
-    for (const l of labels) {
+    ctx.lineWidth = 1;
+    for (const l of layoutLabels(labels)) {
       ctx.fillStyle = `rgba(255,255,255,${(l.alpha * 0.9).toFixed(3)})`;
-      ctx.fillText(l.text.toUpperCase(), l.p.x, l.p.y - 8);
+      ctx.fillText(l.text, l.x, l.y);
+      if (l.moved) {
+        ctx.strokeStyle = `rgba(255,255,255,${(l.alpha * 0.4).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.moveTo(l.x, l.y + 2);
+        ctx.lineTo(l.ax, l.ay);
+        ctx.stroke();
+      }
     }
 
     // The button belongs to whichever rung the panel is showing: this one
@@ -498,7 +543,9 @@ export class WorldRenderer {
       }
       return lifted[lifted.length - 1];
     };
-    const packets = reduced ? [0.5] : [(t / 1700) % 1, (t / 1700 + 0.5) % 1];
+    const n = 1 + Math.round(this.activity * 3);
+    const period = 1700 / (0.6 + this.activity);
+    const packets = reduced ? [0.5] : Array.from({ length: n }, (_, k) => (t / period + k / n) % 1);
     for (const s of packets) {
       const p = project(at(s), view);
       if (!p) continue;

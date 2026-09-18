@@ -22,7 +22,7 @@ export const mcp: Scene = {
     { id: "net", kind: "globe", at: [7.5, 2, -11], blurb: "Nobody scans for MCP servers. An agent arrives here because someone pointed it here.", label: "the internet", scale: 0.9 },
     { id: "agent", kind: "laptop", at: [8.5, 0, -1.5], blurb: "An AI agent that connected on purpose. Its client name and version arrive in the handshake, as a claim.", label: "an agent, connecting on purpose", initial: "dim" },
     { id: "classifier", kind: "server", at: [-8, 0, -2], blurb: "Two questions in order: did the response comply, and if it refused, which known refusal style does it resemble.", label: "classifier · two axes", initial: "dim" },
-    { id: "signatures", kind: "cards", at: [-5.5, 0, -7.5], blurb: "Pattern banks for refusal phrasing and compliance markers, each with a confidence weight. Hypotheses until verified.", label: "signature bank", initial: "dim" },
+    { id: "signatures", kind: "cards", at: [-8, 0, -9.5], blurb: "Pattern banks for refusal phrasing and compliance markers, each with a confidence weight. Hypotheses until verified.", label: "signature bank", initial: "dim" },
     { id: "log", kind: "rack", at: [-13, 0, -4.5], blurb: "One line per submission: probe id, response, verdict, self-declared agent, client name, hashed address and country. Nothing else.", label: "sessions.jsonl" },
     { id: "findings", kind: "cards", at: [-9.5, 0, -9.5], blurb: "The public dataset and the comparison so far across three real agents.", label: "public findings", initial: "dim" },
   ],

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { resolve } from "@/lib/anatomy/engine.ts";
-import { WorldRenderer } from "@/lib/anatomy/render.ts";
+import { createRenderer, type Renderer } from "@/lib/anatomy/renderer.ts";
 import { ssh } from "@/lib/anatomy/scenes/ssh.ts";
 import type { Rung } from "@/lib/anatomy/scenes/index.ts";
 
@@ -17,37 +17,28 @@ const STEP_MS = 3400;
 const REST_MS = 5200;
 const RUNGS: Rung[] = [{ scene: ssh, offset: [0, 0, 0] }];
 
-export function SensorSketch() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+// The world's busyness follows the live 24-hour count: a few hundred
+// sessions is a quiet day, ten thousand is a loud one. Log-scaled so the
+// difference between 200 and 2,000 is visible and 20,000 does not saturate.
+export const activityOf = (sessions24h: number | null): number =>
+  sessions24h === null || sessions24h <= 0 ? 0.35 : Math.max(0.15, Math.min(1, Math.log10(sessions24h) / 4.5));
+
+export function SensorSketch({ sessions24h = null }: { sessions24h?: number | null }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState(0);
-  const rendererRef = useRef<WorldRenderer | null>(null);
+  const rendererRef = useRef<Renderer | null>(null);
   const reduced = useRef(false);
-
-  if (!rendererRef.current) rendererRef.current = new WorldRenderer(RUNGS, [resolve(ssh, ["idle"])]);
 
   useEffect(() => {
     reduced.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const cv = canvasRef.current;
     const wrap = wrapRef.current;
     const stage = stageRef.current;
-    if (!cv || !wrap || !stage) return;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return;
-    const renderer = rendererRef.current!;
+    if (!wrap || !stage) return;
 
-    let W = 0, H = 0, DPR = 1;
     const size = () => {
-      DPR = Math.min(window.devicePixelRatio || 1, 2);
-      W = stage.clientWidth;
-      H = stage.clientHeight;
-      cv.width = Math.round(W * DPR);
-      cv.height = Math.round(H * DPR);
-      cv.style.width = `${W}px`;
-      cv.style.height = `${H}px`;
+      rendererRef.current?.resize(stage.clientWidth, stage.clientHeight, window.devicePixelRatio || 1);
     };
-    size();
     const monoVar = getComputedStyle(document.documentElement).getPropertyValue("--font-dm-mono").trim();
     const fonts = { mono: monoVar ? `${monoVar}, ui-monospace, monospace` : "ui-monospace, monospace" };
 
@@ -55,17 +46,16 @@ export function SensorSketch() {
     // cycling: the session inside the shell, being recorded.
     let step = reduced.current ? 4 : 0;
     const show = (k: number) => {
-      renderer.setVisual(0, resolve(ssh, TOUR.slice(0, k + 1)), performance.now());
+      rendererRef.current?.setVisual(0, resolve(ssh, TOUR.slice(0, k + 1)), performance.now());
       setAt(k);
     };
-    show(step);
 
     let raf = 0;
     let visible = false;
+    let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const draw = (t: number) => {
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      renderer.frame(ctx, W, H, t, 0, reduced.current, fonts);
+      rendererRef.current?.frame(t, 0, reduced.current, fonts);
     };
     const loop = (t: number) => {
       draw(t);
@@ -94,23 +84,37 @@ export function SensorSketch() {
       resizeTimer = setTimeout(() => { size(); kick(); }, 120);
     };
     window.addEventListener("resize", onResize);
-    document.fonts?.ready.then(kick);
-    kick();
+    createRenderer(RUNGS, [resolve(ssh, TOUR.slice(0, step + 1))]).then((r) => {
+      if (disposed) { r.dispose(); return; }
+      r.attach(stage);
+      rendererRef.current = r;
+      r.setActivity(activityOf(sessions24h));
+      size();
+      show(step);
+      document.fonts?.ready.then(kick);
+      kick();
+    });
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       if (timer) clearTimeout(timer);
       clearTimeout(resizeTimer);
       io.disconnect();
       window.removeEventListener("resize", onResize);
+      rendererRef.current?.dispose();
+      rendererRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    rendererRef.current?.setActivity(activityOf(sessions24h));
+  }, [sessions24h]);
 
   const step = ssh.steps[TOUR[at]];
   return (
     <div className="sketch" ref={wrapRef}>
-      <div className="sketch-stage" ref={stageRef}>
-        <canvas ref={canvasRef} className="sketch-canvas" aria-hidden="true" />
-      </div>
+      <div className="sketch-stage" ref={stageRef} aria-hidden="true" />
       <div className="sketch-cap" aria-live="polite">
         <div className="sketch-dots" aria-hidden="true">
           {TOUR.map((id, i) => (

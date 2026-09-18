@@ -326,15 +326,20 @@ export function WorldMap({ points, site }: { points: MapPoint[]; site?: Site | n
         <line className="al" x1={0} y1={Y(0)} x2={VW} y2={Y(0)} />
 
         {site &&
-          points.map((p) => (
+          points.map((p, k) => (
             <path
               key={`a${p.code}`}
               className="arc"
               d={arc(p, site)}
-              style={{
-                opacity: 0.16 + Math.min(0.6, (p.sessions / total) * 2.2),
-                animationDelay: `${(p.code.charCodeAt(0) * 7 + p.code.charCodeAt(1) * 3) % 1600}ms`,
-              }}
+              style={
+                {
+                  "--o": 0.16 + Math.min(0.6, (p.sessions / total) * 2.2),
+                  // Arrive one by one, busiest first, then keep flowing at
+                  // slightly different rates so the lines never march in step.
+                  "--in": `${k * 90}ms`,
+                  "--flow": `${1300 + ((p.code.charCodeAt(0) * 7 + p.code.charCodeAt(1) * 3) % 700)}ms`,
+                } as React.CSSProperties
+              }
             />
           ))}
 

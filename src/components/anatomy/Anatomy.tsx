@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fill, resolve, type VisualState } from "@/lib/anatomy/engine.ts";
-import { WorldRenderer } from "@/lib/anatomy/render.ts";
+import { createRenderer, type Renderer } from "@/lib/anatomy/renderer.ts";
 import { RUNGS } from "@/lib/anatomy/scenes/index.ts";
 import type { LiveFacts } from "@/lib/anatomy/types.ts";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -38,28 +38,29 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
 
   const worldRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
   const ctaRef = useRef<HTMLButtonElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef(0);
   const rungRef = useRef(0);
   const visibleRef = useRef(false);
-  const rendererRef = useRef<WorldRenderer | null>(null);
+  const rendererRef = useRef<Renderer | null>(null);
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
 
   const visuals = useMemo<VisualState[]>(() => RUNGS.map((r, i) => resolve(r.scene, paths[i])), [paths]);
 
-  if (!rendererRef.current) rendererRef.current = new WorldRenderer(RUNGS, visuals);
-
   // Feed the renderer on every path change; it diffs asset placement itself.
+  // The renderer arrives asynchronously (its chunk loads on demand), so the
+  // latest visuals are kept where its creation can read them.
+  const visualsRef = useRef(visuals);
   const lastVisuals = useRef(visuals);
   useEffect(() => {
+    visualsRef.current = visuals;
     if (lastVisuals.current === visuals) return;
     const now = performance.now();
-    visuals.forEach((v, i) => {
-      if (v !== lastVisuals.current[i]) rendererRef.current!.setVisual(i, v, now);
-    });
+    const r = rendererRef.current;
+    if (r) visuals.forEach((v, i) => { if (v !== lastVisuals.current[i]) r.setVisual(i, v, now); });
     lastVisuals.current = visuals;
   }, [visuals]);
 
@@ -100,32 +101,24 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
 
   // ── the frame loop ──
   useEffect(() => {
-    const cv = canvasRef.current;
+    const view = viewRef.current;
     const stage = stageRef.current;
-    if (!cv || !stage) return;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return;
+    if (!view || !stage) return;
 
-    let W = 0, H = 0, DPR = 1;
     const size = () => {
-      DPR = Math.min(window.devicePixelRatio || 1, 2);
-      W = stage.clientWidth;
-      H = stage.clientHeight;
-      cv.width = Math.round(W * DPR);
-      cv.height = Math.round(H * DPR);
-      cv.style.width = `${W}px`;
-      cv.style.height = `${H}px`;
+      rendererRef.current?.resize(stage.clientWidth, stage.clientHeight, window.devicePixelRatio || 1);
     };
-    size();
 
     const monoVar = getComputedStyle(document.documentElement).getPropertyValue("--font-dm-mono").trim();
     const fonts = { mono: monoVar ? `${monoVar}, ui-monospace, monospace` : "ui-monospace, monospace" };
 
     let raf = 0;
     let visible = true;
+    let disposed = false;
     const draw = (t: number) => {
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      const out = rendererRef.current!.frame(ctx, W, H, t, progressRef.current, reducedRef.current, fonts);
+      const r = rendererRef.current;
+      if (!r) return;
+      const out = r.frame(t, progressRef.current, reducedRef.current, fonts);
       const cta = ctaRef.current;
       if (cta) {
         if (out.cta) {
@@ -153,6 +146,15 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
     };
     const kick = () => { if (!raf) raf = requestAnimationFrame(loop); };
 
+    createRenderer(RUNGS, visualsRef.current).then((r) => {
+      if (disposed) { r.dispose(); return; }
+      r.attach(view);
+      rendererRef.current = r;
+      lastVisuals.current = visualsRef.current;
+      size();
+      kick();
+    });
+
     // Only spend frames while the stage is on screen.
     const io = new IntersectionObserver(([e]) => {
       visible = e.isIntersecting;
@@ -174,12 +176,15 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
     kick();
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       clearTimeout(resizeTimer);
       io.disconnect();
       mo.disconnect();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", kick);
+      rendererRef.current?.dispose();
+      rendererRef.current = null;
     };
   }, []);
 
@@ -336,7 +341,7 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
             onPointerCancel={endDrag}
             onPointerLeave={onPointerLeave}
           >
-            <canvas ref={canvasRef} className="anatomy-canvas" aria-hidden="true" />
+            <div ref={viewRef} className="anatomy-view" aria-hidden="true" />
             <div className="anatomy-tip" ref={tipRef} data-on="false" aria-hidden="true">
               <span className="anatomy-tip-label" />
               <span className="anatomy-tip-blurb" />
