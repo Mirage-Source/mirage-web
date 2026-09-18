@@ -40,7 +40,10 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctaRef = useRef<HTMLButtonElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef(0);
+  const rungRef = useRef(0);
+  const visibleRef = useRef(false);
   const rendererRef = useRef<WorldRenderer | null>(null);
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
@@ -78,7 +81,12 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
       // Travel ends a little before the boundary so a scroll that lands a
       // fraction short of the next rung never counts as still travelling.
       const t = i < n - 1 && frac >= 0.55 && frac < 0.97;
-      if (r !== lastRung) { lastRung = r; setRung(r); }
+      if (r !== lastRung) {
+        lastRung = r;
+        rungRef.current = r;
+        setRung(r);
+        rendererRef.current?.setFocus(null);
+      }
       if (t !== lastTravel) { lastTravel = t; setTravelling(t); }
     };
     onScroll();
@@ -125,6 +133,16 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
           cta.dataset.on = "true";
         } else cta.dataset.on = "false";
       }
+      const tip = tipRef.current;
+      if (tip) {
+        if (out.hover) {
+          tip.style.transform = `translate(${out.hover.x.toFixed(1)}px, ${out.hover.y.toFixed(1)}px)`;
+          tip.dataset.on = "true";
+          const [l, b] = [tip.firstElementChild as HTMLElement, tip.lastElementChild as HTMLElement];
+          if (l.textContent !== out.hover.label) l.textContent = out.hover.label;
+          if (b.textContent !== out.hover.blurb) b.textContent = out.hover.blurb;
+        } else tip.dataset.on = "false";
+      }
     };
     const loop = (t: number) => {
       draw(t);
@@ -138,6 +156,7 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
     // Only spend frames while the stage is on screen.
     const io = new IntersectionObserver(([e]) => {
       visible = e.isIntersecting;
+      visibleRef.current = visible;
       if (visible) kick();
     });
     io.observe(stage);
@@ -165,8 +184,103 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
   }, []);
 
   const choose = useCallback((to: string) => {
+    rendererRef.current?.setFocus(null);
+    rendererRef.current?.setPreview([]);
     setPaths((ps) => ps.map((p, i) => (i === rung ? [...p, to] : p)));
   }, [rung]);
+
+  // Hovering a choice rings the objects that step would light up.
+  const previewChoice = useCallback((to: string | null) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    if (!to) return r.setPreview([]);
+    const { scene } = RUNGS[rung];
+    const step = scene.steps[to];
+    const keys = new Set<string>();
+    for (const e of step.effects) {
+      if (e.type === "state" && e.state === "hot") keys.add(`${rung}:${e.node}`);
+      if (e.type === "flow") { keys.add(`${rung}:${e.from}`); keys.add(`${rung}:${e.to}`); }
+      if (e.type === "camera") keys.add(`${rung}:${e.look}`);
+    }
+    r.setPreview(keys);
+  }, [rung]);
+
+  // ── pointer: drag to orbit, hover to name, click to turn toward ──
+  const drag = useRef<{ x: number; y: number; moved: boolean; id: number } | null>(null);
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    if ((e.target as HTMLElement).closest("button, a, aside")) return;
+    drag.current = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
+  }, []);
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const r = rendererRef.current;
+    const stage = stageRef.current;
+    if (!r || !stage) return;
+    const box = stage.getBoundingClientRect();
+    const d = drag.current;
+    if (d && d.id === e.pointerId) {
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (!d.moved && Math.hypot(dx, dy) > 4) {
+        d.moved = true;
+        r.setDragging(true);
+        stage.setPointerCapture(e.pointerId);
+        stage.dataset.dragging = "true";
+      }
+      if (d.moved) {
+        r.nudgeOrbit(-dx * 0.0045, dy * 0.0035);
+        d.x = e.clientX;
+        d.y = e.clientY;
+      }
+      return;
+    }
+    if (e.pointerType !== "mouse") return;
+    const key = r.hitTest(e.clientX - box.left, e.clientY - box.top);
+    r.setHover(key);
+    stage.dataset.hover = String(key !== null);
+  }, []);
+  const endDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const r = rendererRef.current;
+    const stage = stageRef.current;
+    const d = drag.current;
+    drag.current = null;
+    if (!r || !stage) return;
+    r.setDragging(false);
+    stage.dataset.dragging = "false";
+    if (d && !d.moved && e.type === "pointerup") {
+      const box = stage.getBoundingClientRect();
+      const key = r.hitTest(e.clientX - box.left, e.clientY - box.top);
+      r.setFocus(key && key !== r.getFocus() ? key : null);
+    }
+  }, []);
+  const onPointerLeave = useCallback(() => {
+    rendererRef.current?.setHover(null);
+    if (stageRef.current) stageRef.current.dataset.hover = "false";
+  }, []);
+
+  // ── keyboard: digits choose, Backspace goes back, Escape lets go ──
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!visibleRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "Escape") { rendererRef.current?.setFocus(null); return; }
+      const stage = stageRef.current;
+      if (!stage) return;
+      if (e.key === "Backspace") {
+        const b = stage.querySelector<HTMLButtonElement>(".anatomy-nav button");
+        if (b) { e.preventDefault(); b.click(); }
+        return;
+      }
+      if (/^[1-9]$/.test(e.key)) {
+        const n = Number(e.key) - 1;
+        const buttons = stage.querySelectorAll<HTMLButtonElement>(".anatomy-cta[data-show='true'], .anatomy-choice");
+        const b = buttons[n];
+        if (b) { e.preventDefault(); b.click(); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const back = useCallback(() => {
     setPaths((ps) => ps.map((p, i) => (i === rung && p.length > 1 ? p.slice(0, -1) : p)));
   }, [rung]);
@@ -212,8 +326,21 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
           ref={worldRef}
           style={{ height: `calc(100svh + ${((n - 1) * PER_RUNG + TAIL) * 100}svh)` }}
         >
-          <div className="anatomy-stage" ref={stageRef} data-travel={travelling}>
+          <div
+            className="anatomy-stage"
+            ref={stageRef}
+            data-travel={travelling}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onPointerLeave={onPointerLeave}
+          >
             <canvas ref={canvasRef} className="anatomy-canvas" aria-hidden="true" />
+            <div className="anatomy-tip" ref={tipRef} data-on="false" aria-hidden="true">
+              <span className="anatomy-tip-label" />
+              <span className="anatomy-tip-blurb" />
+            </div>
 
             <button
               ref={ctaRef}
@@ -255,7 +382,16 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
               <div className="anatomy-actions">
                 {!atRoot &&
                   step.choices.map((c) => (
-                    <button key={c.to} type="button" className="anatomy-choice" onClick={() => choose(c.to)}>
+                    <button
+                      key={c.to}
+                      type="button"
+                      className="anatomy-choice"
+                      onClick={() => choose(c.to)}
+                      onMouseEnter={() => previewChoice(c.to)}
+                      onMouseLeave={() => previewChoice(null)}
+                      onFocus={() => previewChoice(c.to)}
+                      onBlur={() => previewChoice(null)}
+                    >
                       {c.label}
                     </button>
                   ))}
@@ -274,7 +410,10 @@ export function Anatomy({ facts, live }: { facts: LiveFacts | null; live: boolea
               )}
               {atRoot && (
                 <p className="anatomy-nav mono">
-                  <span>press the button on the sensor{rung < n - 1 ? ", or scroll to the next one" : ""}</span>
+                  <span>
+                    press the button on the sensor · drag to look around · hover anything to learn what it is
+                    {rung < n - 1 ? " · scroll for the next sensor" : ""}
+                  </span>
                 </p>
               )}
             </aside>

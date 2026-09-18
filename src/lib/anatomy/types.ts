@@ -31,6 +31,8 @@ export interface SceneNode {
   kind: NodeKind;
   at: V3;
   label?: string;
+  // One sentence for the hover tooltip: what this thing is in the story.
+  blurb?: string;
   initial?: NodeState;
   // Multiplies the primitive's authored size.
   scale?: number;

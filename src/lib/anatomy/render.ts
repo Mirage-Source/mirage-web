@@ -30,6 +30,8 @@ export interface Fonts {
 export interface FrameOut {
   // Screen position of the current rung's CTA anchor, or null if off-screen.
   cta: { x: number; y: number } | null;
+  // The hovered object's screen position and text, for the tooltip.
+  hover: { x: number; y: number; label: string; blurb: string } | null;
 }
 
 // The camera a rung asks for right now: its authored camera, turned toward
@@ -61,6 +63,44 @@ export function fitCamera(cam: Camera, w: number, h: number): Camera {
 export const viewCentre = (w: number, h: number): [number, number] =>
   w / h < 0.9 ? [w * 0.5, h * 0.36] : [w * 0.54, h * 0.46];
 
+// Swing the camera around its target: yaw about the vertical axis, pitch
+// toward or away from top-down, keeping the distance. Pitch is clamped so
+// the reader can neither go under the ground nor straight overhead.
+export function orbitCamera(cam: Camera, yaw: number, pitch: number): Camera {
+  const arm = sub(cam.position, cam.target);
+  const horiz = Math.hypot(arm[0], arm[2]);
+  const dist = Math.hypot(horiz, arm[1]);
+  const az = Math.atan2(arm[2], arm[0]) + yaw;
+  const el = Math.max(0.08, Math.min(1.25, Math.atan2(arm[1], horiz) + pitch));
+  const h2 = Math.cos(el) * dist;
+  return {
+    position: add(cam.target, [Math.cos(az) * h2, Math.sin(el) * dist, Math.sin(az) * h2]),
+    target: cam.target,
+  };
+}
+
+export interface Hit {
+  key: string;
+  x: number;
+  y: number;
+  r: number;
+}
+
+// The object under the pointer: nearest centre within its own radius plus a
+// little slack, so thin things like a figure are still easy to catch.
+export function nearest(hits: Iterable<Hit>, x: number, y: number): string | null {
+  let best: string | null = null;
+  let bestD = Infinity;
+  for (const h of hits) {
+    const d = Math.hypot(h.x - x, h.y - y);
+    if (d <= Math.max(h.r + 8, 18) && d < bestD) {
+      best = h.key;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
 export class WorldRenderer {
   private rungs: Rung[];
   private visual: VisualState[];
@@ -70,6 +110,27 @@ export class WorldRenderer {
   private nodeIndex = new Map<string, { node: SceneNode; rung: number }>();
   private segCache = new Map<string, Segment[]>();
   private lastT = 0;
+
+  // Reader-driven state: an orbit offset that eases back when released, the
+  // object under the pointer, the object the camera has been turned to, and
+  // the objects a hovered choice would light up.
+  private orbit = { yaw: 0, pitch: 0 };
+  private dragging = false;
+  private hover: string | null = null;
+  private focus: string | null = null;
+  private preview = new Set<string>();
+  private hits = new Map<string, Hit>();
+
+  nudgeOrbit(dyaw: number, dpitch: number) {
+    this.orbit.yaw = Math.max(-1.2, Math.min(1.2, this.orbit.yaw + dyaw));
+    this.orbit.pitch = Math.max(-0.6, Math.min(0.6, this.orbit.pitch + dpitch));
+  }
+  setDragging(on: boolean) { this.dragging = on; }
+  setHover(key: string | null) { this.hover = key; }
+  setFocus(key: string | null) { this.focus = key; }
+  getFocus() { return this.focus; }
+  setPreview(keys: Iterable<string>) { this.preview = new Set(keys); }
+  hitTest(x: number, y: number): string | null { return nearest(this.hits.values(), x, y); }
 
   constructor(rungs: Rung[], visual: VisualState[]) {
     this.rungs = rungs;
@@ -123,7 +184,13 @@ export class WorldRenderer {
   }
 
   private goalFor(rung: number): Camera {
-    return cameraFor(this.rungs[rung], this.visual[rung]);
+    const v = this.visual[rung];
+    // A clicked object wins over the step's own camera while it is held.
+    if (this.focus && this.focus.startsWith(`${rung}:`)) {
+      const id = this.focus.slice(this.focus.indexOf(":") + 1);
+      return cameraFor(this.rungs[rung], { ...v, camera: { look: id, zoom: 1.2 } });
+    }
+    return cameraFor(this.rungs[rung], v);
   }
 
   frame(
@@ -152,12 +219,17 @@ export class WorldRenderer {
       const lift: V3 = [0, Math.sin(e * Math.PI) * 24, Math.sin(e * Math.PI) * 18];
       goal = { position: add(lerp(a.position, b.position, e), lift), target: lerp(a.target, b.target, e) };
     }
-    if (!reduced) {
-      const sway = Math.sin(t / 5200) * 0.035;
-      const arm = sub(goal.position, goal.target);
-      const rot: V3 = [arm[0] * Math.cos(sway) - arm[2] * Math.sin(sway), arm[1], arm[0] * Math.sin(sway) + arm[2] * Math.cos(sway)];
-      goal = { position: add(goal.target, rot), target: goal.target };
+    // The reader's orbit rides on top of whatever the story asked for, and
+    // drifts back to zero once the pointer is released.
+    if (!this.dragging) {
+      const k = reduced ? 1 : 1 - Math.exp(-dt / 900);
+      this.orbit.yaw -= this.orbit.yaw * k;
+      this.orbit.pitch -= this.orbit.pitch * k;
+      if (Math.abs(this.orbit.yaw) < 1e-4) this.orbit.yaw = 0;
+      if (Math.abs(this.orbit.pitch) < 1e-4) this.orbit.pitch = 0;
     }
+    const sway = reduced ? 0 : Math.sin(t / 5200) * 0.035;
+    if (sway || this.orbit.yaw || this.orbit.pitch) goal = orbitCamera(goal, sway + this.orbit.yaw, this.orbit.pitch);
     if (!this.cam || reduced) this.cam = goal;
     else {
       const k = 1 - Math.exp(-dt / 260);
@@ -174,11 +246,14 @@ export class WorldRenderer {
 
     // ── nodes ──
     const labels: { p: Projected; text: string; alpha: number }[] = [];
+    this.hits.clear();
+    let hoverOut: FrameOut["hover"] = null;
     this.rungs.forEach((r, ri) => {
       const v = this.visual[ri];
       for (const n of r.scene.nodes) {
         const key = `${ri}:${n.id}`;
-        const want = ALPHA[v.nodes[n.id]];
+        const hovered = this.hover === key || this.focus === key;
+        const want = hovered ? 1 : ALPHA[v.nodes[n.id]];
         const have = this.nodeAlpha.get(key) ?? want;
         const alpha = reduced ? want : have + (want - have) * (1 - Math.exp(-dt / 420));
         this.nodeAlpha.set(key, alpha);
@@ -186,14 +261,21 @@ export class WorldRenderer {
         const dark = v.nodes[n.id] === "dark";
         const hot = v.nodes[n.id] === "hot";
         ctx.setLineDash(dark ? [2, 4] : []);
-        ctx.lineWidth = 1;
+        ctx.lineWidth = hovered ? 1.4 : 1;
         let depthSum = 0, count = 0;
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
         for (const [p0, p1] of this.segmentsOf(ri, n)) {
           const s = this.clip(p0, p1, view);
           if (!s) continue;
           const d = (s[0].depth + s[1].depth) / 2;
           depthSum += d;
           count++;
+          for (const q of s) {
+            if (q.x < minx) minx = q.x;
+            if (q.x > maxx) maxx = q.x;
+            if (q.y < miny) miny = q.y;
+            if (q.y > maxy) maxy = q.y;
+          }
           ctx.strokeStyle = `rgba(255,255,255,${(alpha * fade(d)).toFixed(3)})`;
           ctx.beginPath();
           ctx.moveTo(s[0].x, s[0].y);
@@ -203,6 +285,21 @@ export class WorldRenderer {
         ctx.setLineDash([]);
         if (count === 0) continue;
         const f = fade(depthSum / count);
+        // Only things the reader can see are things the reader can point at.
+        if (alpha > 0.15 && f > 0.25) {
+          const cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
+          this.hits.set(key, { key, x: cx, y: cy, r: Math.max(maxx - minx, maxy - miny) / 2 });
+          // To the right of the object: above it is where its label and,
+          // at the root, the CTA button already sit.
+          if (this.hover === key) {
+            hoverOut = { x: maxx + 14, y: cy, label: n.label ?? n.id, blurb: n.blurb ?? "" };
+          }
+        }
+        if (this.preview.has(key)) {
+          ctx.setLineDash([3, 5]);
+          this.ringOnGround(ctx, this.world(ri, n.at), 1.3, view, 0.6 * f);
+          ctx.setLineDash([]);
+        }
         if (hot && !reduced) {
           // A breathing ring on the ground under whatever matters right now.
           const base = this.world(ri, n.at);
@@ -290,7 +387,7 @@ export class WorldRenderer {
     const arrived = travel >= 1 - 1e-6;
     const ci = arrived ? i + 1 : i;
     const ctaP = project(this.anchorOf(ci, this.rungs[ci].scene.ctaNode), view);
-    return { cta: ctaP && (travel === 0 || arrived) ? { x: ctaP.x, y: ctaP.y } : null };
+    return { cta: ctaP && (travel === 0 || arrived) ? { x: ctaP.x, y: ctaP.y } : null, hover: hoverOut };
   }
 
   // Clip a world segment to the near plane, then project. Long ground lines
