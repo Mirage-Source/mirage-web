@@ -3,7 +3,8 @@ import "server-only";
 import { countryName } from "./centroids";
 import * as fx from "./fixtures";
 import * as geo from "./geo";
-import { exportDump, exportPage, isLive } from "./upstream";
+import { collectPages } from "./paging";
+import { exportPage, isLive } from "./upstream";
 import type {
   ClusterSummary,
   ExportSession,
@@ -20,10 +21,15 @@ const GEO_IP_CAP = 4000;
 const cache = new Map<Protocol, { at: number; sessions: ExportSession[] }>();
 const inflightBy = new Map<Protocol, Promise<ExportSession[]>>();
 
+const CORPUS_PAGE = 2000;
+const CORPUS_MAX_PAGES = 500;
+
 async function fetchCorpus(protocol: Protocol): Promise<ExportSession[]> {
   if (!isLive()) return protocol === "ssh" ? fx.exportSessions() : [];
-  const body = await exportDump(protocol);
-  return body.sessions;
+  return collectPages(async (after) => {
+    const body = await exportPage(CORPUS_PAGE, after, protocol);
+    return { items: body.sessions, next: body.next_cursor ?? null };
+  }, CORPUS_MAX_PAGES);
 }
 
 export async function corpus(protocol: Protocol = "ssh"): Promise<ExportSession[]> {
