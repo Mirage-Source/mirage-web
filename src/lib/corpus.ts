@@ -8,6 +8,7 @@ import type {
   ClusterSummary,
   ExportSession,
   GeoSummary,
+  Protocol,
   SessionQuery,
   SessionRow,
   SessionsPage,
@@ -16,27 +17,30 @@ import type {
 const TTL_MS = 5 * 60 * 1000;
 const GEO_IP_CAP = 4000;
 
-let cached: { at: number; sessions: ExportSession[] } | null = null;
-let inflight: Promise<ExportSession[]> | null = null;
+const cache = new Map<Protocol, { at: number; sessions: ExportSession[] }>();
+const inflightBy = new Map<Protocol, Promise<ExportSession[]>>();
 
-async function fetchCorpus(): Promise<ExportSession[]> {
-  if (!isLive()) return fx.exportSessions();
-  const body = await exportDump();
+async function fetchCorpus(protocol: Protocol): Promise<ExportSession[]> {
+  if (!isLive()) return protocol === "ssh" ? fx.exportSessions() : [];
+  const body = await exportDump(protocol);
   return body.sessions;
 }
 
-export async function corpus(): Promise<ExportSession[]> {
+export async function corpus(protocol: Protocol = "ssh"): Promise<ExportSession[]> {
+  const cached = cache.get(protocol);
   if (cached && Date.now() - cached.at < TTL_MS) return cached.sessions;
 
+  let inflight = inflightBy.get(protocol);
   if (!inflight) {
-    inflight = fetchCorpus()
+    inflight = fetchCorpus(protocol)
       .then((sessions) => {
-        cached = { at: Date.now(), sessions };
+        cache.set(protocol, { at: Date.now(), sessions });
         return sessions;
       })
       .finally(() => {
-        inflight = null;
+        inflightBy.delete(protocol);
       });
+    inflightBy.set(protocol, inflight);
     // A refresh that fails must not reject whoever happens to be awaiting it
     // below; the catch here keeps the rejection from going unhandled when the
     // stale branch returns instead.
@@ -87,7 +91,7 @@ function toRow(s: ExportSession): SessionRow {
 const SEVERITY_ORDER = { low: 0, medium: 1, high: 2, critical: 3 };
 
 export async function querySessions(q: SessionQuery): Promise<SessionsPage> {
-  const all = await corpus();
+  const all = await corpus(q.protocol ?? "ssh");
   const needle = q.search?.trim().toLowerCase() ?? "";
 
   let rows = all.filter((s) => {
@@ -147,8 +151,8 @@ export async function querySessions(q: SessionQuery): Promise<SessionsPage> {
   };
 }
 
-export async function facets() {
-  const all = await corpus();
+export async function facets(protocol: Protocol = "ssh") {
+  const all = await corpus(protocol);
 
   const classes = new Map<string, number>();
   const outcomes = new Map<string, number>();
@@ -177,8 +181,8 @@ export async function facets() {
   };
 }
 
-export async function clusters(): Promise<ClusterSummary[]> {
-  const all = await corpus();
+export async function clusters(protocol: Protocol = "ssh"): Promise<ClusterSummary[]> {
+  const all = await corpus(protocol);
   const groups = new Map<string, ExportSession[]>();
 
   for (const s of all) {
@@ -242,19 +246,19 @@ export async function clusters(): Promise<ClusterSummary[]> {
 const IP_TTL_MS = 15 * 60 * 1000;
 const IP_PAGE = 2000;
 const IP_MAX_PAGES = 500;
-let ipCache: { at: number; counts: Map<string, number> } | null = null;
-let ipInflight: Promise<Map<string, number>> | null = null;
+const ipCache = new Map<Protocol, { at: number; counts: Map<string, number> }>();
+const ipInflightBy = new Map<Protocol, Promise<Map<string, number>>>();
 
-async function countAddresses(): Promise<Map<string, number>> {
+async function countAddresses(protocol: Protocol): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   if (!isLive()) {
     // Fixtures are small and already in memory; no paging to do.
-    for (const s of await corpus()) counts.set(s.client_ip, (counts.get(s.client_ip) ?? 0) + 1);
+    for (const s of await corpus(protocol)) counts.set(s.client_ip, (counts.get(s.client_ip) ?? 0) + 1);
     return counts;
   }
   let after: string | undefined;
   for (let page = 0; page < IP_MAX_PAGES; page++) {
-    const body = await exportPage(IP_PAGE, after);
+    const body = await exportPage(IP_PAGE, after, protocol);
     for (const s of body.sessions) counts.set(s.client_ip, (counts.get(s.client_ip) ?? 0) + 1);
     if (!body.next_cursor || body.sessions.length === 0) break;
     after = body.next_cursor;
@@ -262,30 +266,33 @@ async function countAddresses(): Promise<Map<string, number>> {
   return counts;
 }
 
-export async function ipCounts(): Promise<Map<string, number>> {
-  if (ipCache && Date.now() - ipCache.at < IP_TTL_MS) return ipCache.counts;
-  if (!ipInflight) {
-    ipInflight = countAddresses()
+export async function ipCounts(protocol: Protocol = "ssh"): Promise<Map<string, number>> {
+  const cached = ipCache.get(protocol);
+  if (cached && Date.now() - cached.at < IP_TTL_MS) return cached.counts;
+  let inflight = ipInflightBy.get(protocol);
+  if (!inflight) {
+    inflight = countAddresses(protocol)
       .then((counts) => {
-        ipCache = { at: Date.now(), counts };
+        ipCache.set(protocol, { at: Date.now(), counts });
         return counts;
       })
       .finally(() => {
-        ipInflight = null;
+        ipInflightBy.delete(protocol);
       });
-    ipInflight.catch(() => undefined);
+    ipInflightBy.set(protocol, inflight);
+    inflight.catch(() => undefined);
   }
   // Stale while revalidating, same policy as the corpus cache.
-  if (ipCache) return ipCache.counts;
-  return ipInflight;
+  if (cached) return cached.counts;
+  return inflight;
 }
 
-export async function geography(): Promise<GeoSummary> {
+export async function geography(protocol: Protocol = "ssh"): Promise<GeoSummary> {
   if (!geo.geoAvailable()) {
     return { available: false, countries: [], asns: [], resolved: 0, unresolved: 0 };
   }
 
-  const perIP = await ipCounts();
+  const perIP = await ipCounts(protocol);
 
   const ips = [...perIP.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -338,5 +345,5 @@ export async function geography(): Promise<GeoSummary> {
 }
 
 export function invalidateCorpus() {
-  cached = null;
+  cache.clear();
 }

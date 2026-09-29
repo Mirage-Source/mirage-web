@@ -20,7 +20,7 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: "MIRAGE",
   description:
-    "An intelligent SSH honeypot. Every credential attempt, every keystroke, every reach for a file left out to be reached for.",
+    "An intelligent SSH and Telnet honeypot. Every credential attempt, every keystroke, every reach for a file left out to be reached for.",
   robots: { index: false, follow: false },
 };
 

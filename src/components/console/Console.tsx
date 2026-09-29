@@ -9,11 +9,13 @@ import { Commands } from "./Commands";
 import { Geography } from "./Geography";
 import { Sessions } from "./Sessions";
 import { Control, Overview, Policy, Validity } from "./views";
+import { protocolQuery } from "@/lib/session-doc";
 import type {
   Facets,
   HoneypotStats,
   LLMProviderListing,
   PolicySummary,
+  Protocol,
   RuntimeConfig,
   SensorList,
   SessionsPage,
@@ -33,6 +35,7 @@ export interface ConsoleData {
   facets: Facets;
   geoAvailable: boolean;
   live: boolean;
+  protocol: Protocol;
 }
 
 const TABS = [
@@ -105,6 +108,12 @@ export function Console({ data }: { data: ConsoleData }) {
     window.scrollTo({ top: 0 });
   };
 
+  const switchProtocol = (next: Protocol) => {
+    if (next === data.protocol) return;
+    setCluster(null);
+    router.push(`/console${protocolQuery(next)}#${tab}`);
+  };
+
   const signOut = async () => {
     try {
       await fetch("/api/auth", { method: "DELETE" });
@@ -131,6 +140,17 @@ export function Console({ data }: { data: ConsoleData }) {
         </nav>
 
         <span className="status">
+          {(["ssh", "telnet"] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className="chip"
+              aria-pressed={data.protocol === p}
+              onClick={() => switchProtocol(p)}
+            >
+              {p === "ssh" ? "SSH" : "Telnet"}
+            </button>
+          ))}
           {data.sensors.sensors.length > 1 ? (
             <select
               className="sensor"
@@ -156,10 +176,11 @@ export function Console({ data }: { data: ConsoleData }) {
         </span>
       </header>
 
-      <main>
+      <main key={data.protocol}>
         {tab === "overview" && <Overview data={data} validity={validity} />}
         {tab === "sessions" && (
           <Sessions
+            protocol={data.protocol}
             initial={data.sessions}
             facets={data.facets}
             geoAvailable={data.geoAvailable}
@@ -167,9 +188,9 @@ export function Console({ data }: { data: ConsoleData }) {
             onClearCluster={() => setCluster(null)}
           />
         )}
-        {tab === "geography" && <Geography available={data.geoAvailable} />}
-        {tab === "clusters" && <Clusters onOpen={openCluster} />}
-        {tab === "commands" && <Commands />}
+        {tab === "geography" && <Geography available={data.geoAvailable} protocol={data.protocol} />}
+        {tab === "clusters" && <Clusters onOpen={openCluster} protocol={data.protocol} />}
+        {tab === "commands" && <Commands protocol={data.protocol} />}
         {tab === "validity" && <Validity v={validity} />}
         {tab === "policy" && <Policy policy={data.policy} providers={data.providers} />}
         {tab === "control" && <Control config={data.config} credentials={data.credentials} />}

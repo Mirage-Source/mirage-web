@@ -575,6 +575,7 @@ export function session(id: string): SessionDetail {
   const attempts = Math.max(base.auth_attempt_count, 1);
 
   return {
+    telnet: null,
     session_id: base.session_id,
     schema_version: "1.2",
     node_id: "Ubuntu",

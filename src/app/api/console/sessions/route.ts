@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { querySessions } from "@/lib/corpus";
 import { UpstreamError } from "@/lib/upstream";
+import { parseProtocol } from "@/lib/session-doc";
 import type { SessionQuery, SessionSort } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
   const sort = p.get("sort") as SessionSort | null;
 
   const query: SessionQuery = {
+    protocol: parseProtocol(p.get("protocol")),
     search: p.get("q") ?? undefined,
     classes: list(p, "class"),
     outcomes: list(p, "outcome"),

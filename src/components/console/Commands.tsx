@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Bars, Head, fmt, stamp, words } from "../ui";
-import type { ExportCommand, ExportCommandsResponse } from "@/lib/types";
+import type { ExportCommand, ExportCommandsResponse, Protocol } from "@/lib/types";
 
 const ACTIONS = ["MINIMAL", "ENRICH", "STALL", "SURFACE_BAIT", "FAKE_SUCCESS"];
 
-export function Commands() {
+export function Commands({ protocol }: { protocol: Protocol }) {
   const [rows, setRows] = useState<ExportCommand[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,11 +20,12 @@ export function Commands() {
 
   const query = useMemo(() => {
     const p = new URLSearchParams({ limit: "200" });
+    if (protocol !== "ssh") p.set("protocol", protocol);
     if (search.trim()) p.set("q", search.trim());
     if (baitOnly) p.set("bait", "true");
     if (action) p.set("action", action);
     return p.toString();
-  }, [search, baitOnly, action]);
+  }, [protocol, search, baitOnly, action]);
 
   const load = useCallback(
     async (after?: string) => {

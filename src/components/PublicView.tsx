@@ -54,12 +54,13 @@ export function PublicView({
       <main>
         <section className="hero hero-split">
           <div>
-            <div className="eyebrow">SSH honeypot · threat intelligence · {validity.sensor}</div>
+            <div className="eyebrow">SSH &amp; Telnet honeypot · threat intelligence · {validity.sensor}</div>
             <h1>An SSH server that isn&rsquo;t there, watched closely.</h1>
             <p>
-              MIRAGE runs a convincing fake SSH server on infrastructure we own, and records what
-              arrives: every credential attempt, every keystroke that follows a successful one, and
-              every reach for a file that was left out to be reached for.
+              MIRAGE runs convincing fake SSH and Telnet servers on infrastructure we own, and
+              records what arrives: every credential attempt, every keystroke that follows a
+              successful one, and every reach for a file that was left out to be reached for. The
+              figures below are from the SSH sensor.
             </p>
           </div>
           <div className="hero-sketch" id="how">

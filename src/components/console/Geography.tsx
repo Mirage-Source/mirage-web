@@ -5,9 +5,10 @@ import { useEffect, useState } from "react";
 import { WorldMap, type MapPoint } from "../charts";
 import { Bars, Figures, Head, fmt } from "../ui";
 import { CENTROIDS } from "@/lib/centroids";
-import type { GeoSummary } from "@/lib/types";
+import { protocolQuery } from "@/lib/session-doc";
+import type { GeoSummary, Protocol } from "@/lib/types";
 
-export function Geography({ available }: { available: boolean }) {
+export function Geography({ available, protocol }: { available: boolean; protocol: Protocol }) {
   const [data, setData] = useState<GeoSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +16,7 @@ export function Geography({ available }: { available: boolean }) {
     if (!available) return;
 
     let cancelled = false;
-    fetch("/api/console/geo")
+    fetch(`/api/console/geo${protocolQuery(protocol)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return (await r.json()) as GeoSummary;
@@ -30,7 +31,7 @@ export function Geography({ available }: { available: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [available]);
+  }, [available, protocol]);
 
   if (!available) {
     return (

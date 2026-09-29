@@ -5,8 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { HourlyChart, RateChart } from "../charts";
 import { Bars, Figures, Head, fmt, stamp, useToast, words } from "../ui";
 import type { ConsoleData } from "./Console";
+import { protocolQuery } from "@/lib/session-doc";
 import type {
   LLMProviderListing,
+  Protocol,
   WeakCredentials,
   PolicySummary,
   RuntimeConfig,
@@ -24,6 +26,7 @@ export function Overview({
   validity: ValiditySummary;
 }) {
   const { stats } = data;
+  const telnet = data.protocol === "telnet";
 
   const bannerTotal = stats.ssh_banners.reduce((n, b) => n + b.count, 0) || 1;
   const latest = validity.accept_rate.at(-1);
@@ -44,7 +47,11 @@ export function Overview({
         <div className="eyebrow">
           {validity.sensor} · {spanDays} days of data
         </div>
-        <h1>An SSH server that isn&rsquo;t there, watched closely.</h1>
+        <h1>
+          {telnet
+            ? "A Telnet login that isn\u2019t there, watched closely."
+            : "An SSH server that isn\u2019t there, watched closely."}
+        </h1>
         <p>
           Every credential attempt, every keystroke, every reach for a file that was left out to
           be reached for.
@@ -65,8 +72,14 @@ export function Overview({
           },
           {
             k: "Accept rate",
-            v: acceptRate === null ? "—" : `${(acceptRate * 100).toFixed(2)}%`,
-            n: latest ? (latest.flagged ? "outside band · latest day" : "within band · latest day") : "no series yet",
+            v: telnet || acceptRate === null ? "—" : `${(acceptRate * 100).toFixed(2)}%`,
+            n: telnet
+              ? "validity checks are SSH only"
+              : latest
+                ? latest.flagged
+                  ? "outside band · latest day"
+                  : "within band · latest day"
+                : "no series yet",
           },
           {
             // Was total_sessions x the latest day's rate, which projects one
@@ -74,8 +87,12 @@ export function Overview({
             // one; the corpus-wide count needs an endpoint that does not
             // exist yet (docs/API-GAPS.md).
             k: "Accepted, latest day",
-            v: latest ? fmt(Math.round(latest.n * latest.rate)) : "—",
-            n: latest ? `of ${fmt(latest.n)} sessions on ${latest.date}` : "no series yet",
+            v: !telnet && latest ? fmt(Math.round(latest.n * latest.rate)) : "—",
+            n: telnet
+              ? "validity checks are SSH only"
+              : latest
+                ? `of ${fmt(latest.n)} sessions on ${latest.date}`
+                : "no series yet",
           },
         ]}
       />
@@ -85,7 +102,7 @@ export function Overview({
         <HourlyChart data={stats.hourly_distribution} />
       </section>
 
-      <LiveFeed />
+      <LiveFeed protocol={data.protocol} />
 
       <section className="block split split-3">
         <div>
@@ -107,13 +124,17 @@ export function Overview({
 
         <div>
           <Head title="What they announce" aside="client banner" />
-          <Bars
-            unit="pct"
-            items={stats.ssh_banners.slice(0, 6).map((b) => ({
-              name: b.banner,
-              n: (b.count / bannerTotal) * 100,
-            }))}
-          />
+          {telnet ? (
+            <p className="note">Telnet has no client banner. Negotiation details are on each session.</p>
+          ) : (
+            <Bars
+              unit="pct"
+              items={stats.ssh_banners.slice(0, 6).map((b) => ({
+                name: b.banner,
+                n: (b.count / bannerTotal) * 100,
+              }))}
+            />
+          )}
         </div>
 
         <div>
@@ -145,7 +166,7 @@ export function Overview({
                   </td>
                   <td className="num">{g.count}</td>
                   <td className="mono">{stamp(g.window_start_ms)}</td>
-                  <td className="mono">{g.ssh_client_banner.replace(/^SSH-2\.0-/, "")}</td>
+                  <td className="mono">{g.ssh_client_banner.replace(/^SSH-2\.0-/, "") || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -759,7 +780,7 @@ function ago(ms: number): string {
   return `${Math.floor(s / 86_400)}d`;
 }
 
-export function LiveFeed() {
+export function LiveFeed({ protocol }: { protocol: Protocol }) {
   const [rows, setRows] = useState<SessionSummary[]>([]);
   const [on, setOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -770,7 +791,7 @@ export function LiveFeed() {
 
   const pull = useCallback(async () => {
     try {
-      const res = await fetch("/api/console/feed?limit=12");
+      const res = await fetch(`/api/console/feed?limit=12${protocolQuery(protocol, "&")}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const page = (await res.json()) as SessionsResponse;
 
@@ -789,7 +810,7 @@ export function LiveFeed() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [protocol]);
 
   useEffect(() => {
     void pull();
@@ -838,7 +859,7 @@ export function LiveFeed() {
                     {s.command_count} cmd
                   </td>
                   <td className="mono" style={{ fontSize: 11.5 }}>
-                    {s.ssh_banner.replace(/^SSH-2\.0-/, "")}
+                    {s.ssh_banner.replace(/^SSH-2\.0-/, "") || "—"}
                   </td>
                   <td className="num" style={{ color: "var(--ink-3)" }}>
                     {ago(s.start_ms)} ago

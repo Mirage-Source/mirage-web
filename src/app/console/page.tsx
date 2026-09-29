@@ -5,23 +5,30 @@ import { policySummary, runtimeConfig, weakCredentials } from "@/lib/derived";
 import { geoAvailable } from "@/lib/geo";
 import * as up from "@/lib/upstream";
 import { UpstreamError } from "@/lib/upstream";
+import { parseProtocol } from "@/lib/session-doc";
 
 export const dynamic = "force-dynamic";
 
-export default async function ConsolePage() {
+export default async function ConsolePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ protocol?: string | string[] }>;
+}) {
+  const raw = (await searchParams).protocol;
+  const protocol = parseProtocol(Array.isArray(raw) ? raw[0] : raw);
   let data: ConsoleData;
 
   try {
     const [stats, validity, sensors, providers, policy, config, sessions, facetted] =
       await Promise.all([
-        up.stats(),
+        up.stats(protocol),
         up.validity(),
         up.sensors(),
         up.providers(),
         policySummary(),
         runtimeConfig(),
-        querySessions({ limit: 50, offset: 0, sort: "recent", withGeo: false }),
-        facets(),
+        querySessions({ protocol, limit: 50, offset: 0, sort: "recent", withGeo: false }),
+        facets(protocol),
       ]);
 
     data = {
@@ -36,6 +43,7 @@ export default async function ConsolePage() {
       facets: facetted,
       geoAvailable: geoAvailable(),
       live: up.isLive(),
+      protocol,
     };
   } catch (err) {
     return (

@@ -1,11 +1,13 @@
 import "server-only";
 
 import * as fx from "./fixtures";
+import { normaliseSession } from "./session-doc";
 import type {
   ExportCommandsResponse,
   ExportResponse,
   HoneypotStats,
   LLMProviderListing,
+  Protocol,
   SensorList,
   SessionDetail,
   SessionReport,
@@ -108,40 +110,46 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+function withProtocol(path: string, protocol: Protocol): string {
+  if (protocol === "ssh") return path;
+  return `${path}${path.includes("?") ? "&" : "?"}protocol=${protocol}`;
+}
+
 async function orFixture<T>(live: () => Promise<T>, offline: () => T): Promise<T> {
   if (!isLive()) return offline();
   return live();
 }
 
-export function stats(): Promise<HoneypotStats> {
+export function stats(protocol: Protocol = "ssh"): Promise<HoneypotStats> {
   return orFixture(
-    () => get<HoneypotStats>("/api/stats", { revalidate: 60, timeoutMs: 20_000 }),
+    () => get<HoneypotStats>(withProtocol("/api/stats", protocol), { revalidate: 60, timeoutMs: 20_000 }),
     () => fx.stats,
   );
 }
 
-export function sessions(limit = 50, offset = 0): Promise<SessionsResponse> {
+export function sessions(limit = 50, offset = 0, protocol: Protocol = "ssh"): Promise<SessionsResponse> {
   const l = Math.min(Math.max(limit, 1), 100);
   const o = Math.max(offset, 0);
   return orFixture(
-    () => get<SessionsResponse>(`/api/sessions?limit=${l}&offset=${o}`, { revalidate: 10 }),
+    () => get<SessionsResponse>(withProtocol(`/api/sessions?limit=${l}&offset=${o}`, protocol), { revalidate: 10 }),
     () => fx.sessionsPage(l, o),
   );
 }
 
-export function feed(limit = 25): Promise<SessionsResponse> {
+export function feed(limit = 25, protocol: Protocol = "ssh"): Promise<SessionsResponse> {
   const l = Math.min(Math.max(limit, 1), 100);
   return orFixture(
-    () => get<SessionsResponse>(`/api/sessions?limit=${l}&offset=0`, { revalidate: 0 }),
+    () => get<SessionsResponse>(withProtocol(`/api/sessions?limit=${l}&offset=0`, protocol), { revalidate: 0 }),
     () => fx.feed(l),
   );
 }
 
-export function session(id: string): Promise<SessionDetail> {
-  return orFixture(
-    () => get<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`, { revalidate: 0 }),
-    () => fx.session(id),
+export async function session(id: string): Promise<SessionDetail> {
+  const raw = await orFixture<Record<string, unknown>>(
+    () => get<Record<string, unknown>>(`/api/sessions/${encodeURIComponent(id)}`, { revalidate: 0 }),
+    () => fx.session(id) as unknown as Record<string, unknown>,
   );
+  return normaliseSession(raw);
 }
 
 // The full corpus dump. Deliberately routed through get() rather than a bare
@@ -149,15 +157,16 @@ export function session(id: string): Promise<SessionDetail> {
 // API sets WriteTimeout: 15s (cmd/api/main.go), so past that it stops writing
 // mid-JSON and the client sees a parse error rather than a timeout. A 20s
 // abort makes the failure legible as an upstream timeout instead.
-export function exportDump(): Promise<ExportResponse> {
-  return get<ExportResponse>("/api/export", { revalidate: 0, timeoutMs: 20_000 });
+export function exportDump(protocol: Protocol = "ssh"): Promise<ExportResponse> {
+  return get<ExportResponse>(withProtocol("/api/export", protocol), { revalidate: 0, timeoutMs: 20_000 });
 }
 
 // One keyset page of the export. Pages are what a memory-capped process can
 // afford: the full dump above is tens of megabytes of JSON parsed at once.
-export function exportPage(limit: number, after?: string): Promise<ExportResponse> {
+export function exportPage(limit: number, after?: string, protocol: Protocol = "ssh"): Promise<ExportResponse> {
   const q = new URLSearchParams({ limit: String(limit) });
   if (after) q.set("after", after);
+  if (protocol !== "ssh") q.set("protocol", protocol);
   return get<ExportResponse>(`/api/export?${q.toString()}`, { revalidate: 0, timeoutMs: 20_000 });
 }
 
@@ -183,9 +192,10 @@ export function sensors(): Promise<SensorList> {
   return orFixture(() => get<SensorList>("/api/sensors", { revalidate: 3600 }), () => fx.sensors);
 }
 
-export function commandExport(after?: string, limit = 100): Promise<ExportCommandsResponse> {
+export function commandExport(after?: string, limit = 100, protocol: Protocol = "ssh"): Promise<ExportCommandsResponse> {
   const params = new URLSearchParams({ limit: String(Math.min(Math.max(limit, 1), 500)) });
   if (after) params.set("after", after);
+  if (protocol !== "ssh") params.set("protocol", protocol);
   return orFixture(
     () => get<ExportCommandsResponse>(`/api/export/commands?${params}`, { revalidate: 60 }),
     () => fx.commandExport(after, limit),

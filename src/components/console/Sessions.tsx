@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DelayPlot } from "../charts";
 import { Head, Sev, duration, fmt, stamp, useToast, words } from "../ui";
 import { countryName } from "@/lib/centroids";
-import type { Facets, SessionEnvelope, SessionRow, SessionSort, SessionsPage } from "@/lib/types";
+import { telnetOptionName } from "@/lib/session-doc";
+import type { Facets, Protocol, SessionEnvelope, SessionRow, SessionSort, SessionsPage } from "@/lib/types";
 
 const SORTS: { id: SessionSort; label: string }[] = [
   { id: "recent", label: "Newest" },
@@ -18,12 +19,14 @@ const SORTS: { id: SessionSort; label: string }[] = [
 const PAGE = 50;
 
 export function Sessions({
+  protocol,
   initial,
   facets,
   geoAvailable,
   cluster,
   onClearCluster,
 }: {
+  protocol: Protocol;
   initial: SessionsPage;
   facets: Facets;
   geoAvailable: boolean;
@@ -54,6 +57,7 @@ export function Sessions({
 
   const query = useMemo(() => {
     const p = new URLSearchParams();
+    if (protocol !== "ssh") p.set("protocol", protocol);
     if (search.trim()) p.set("q", search.trim());
     for (const c of classes) p.append("class", c);
     for (const s of severities) p.append("severity", s);
@@ -65,7 +69,7 @@ export function Sessions({
     p.set("limit", String(PAGE));
     p.set("offset", String(offset));
     return p.toString();
-  }, [search, classes, severities, outcomes, baitOnly, shellOnly, cluster, sort, offset]);
+  }, [protocol, search, classes, severities, outcomes, baitOnly, shellOnly, cluster, sort, offset]);
 
   useEffect(() => {
     let cancelled = false;
@@ -514,8 +518,41 @@ function Detail({ id }: { id: string | null }) {
             </dd>
           </>
         )}
-        <dt>Banner</dt>
-        <dd style={{ fontSize: 11 }}>{detail.ssh_client_banner}</dd>
+        <dt>Protocol</dt>
+        <dd>{detail.protocol === "telnet" ? "Telnet" : "SSH"}</dd>
+        {detail.telnet ? (
+          <>
+            <dt>Negotiation</dt>
+            <dd>{detail.telnet.negotiated ? "negotiated options" : "none · raw socket"}</dd>
+            {detail.telnet.client_options.length > 0 && (
+              <>
+                <dt>Client offered</dt>
+                <dd style={{ fontSize: 11 }}>
+                  {detail.telnet.client_options.map(telnetOptionName).join(", ")}
+                </dd>
+              </>
+            )}
+            {detail.telnet.terminal_type && (
+              <>
+                <dt>Terminal</dt>
+                <dd style={{ fontSize: 11 }}>{detail.telnet.terminal_type}</dd>
+              </>
+            )}
+            {detail.telnet.window_width > 0 && (
+              <>
+                <dt>Window</dt>
+                <dd>
+                  {detail.telnet.window_width}×{detail.telnet.window_height}
+                </dd>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <dt>Banner</dt>
+            <dd style={{ fontSize: 11 }}>{detail.ssh_client_banner}</dd>
+          </>
+        )}
         <dt>Outcome</dt>
         <dd>{detail.outcome}</dd>
         <dt>Class</dt>

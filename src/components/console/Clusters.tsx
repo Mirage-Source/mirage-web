@@ -3,15 +3,17 @@
 import { useEffect, useState } from "react";
 
 import { Figures, Head, fmt, stamp, words } from "../ui";
-import type { ClusterSummary } from "@/lib/types";
+import { protocolQuery } from "@/lib/session-doc";
+import type { ClusterSummary, Protocol } from "@/lib/types";
 
-export function Clusters({ onOpen }: { onOpen: (id: string) => void }) {
+export function Clusters({ onOpen, protocol }: { onOpen: (id: string) => void; protocol: Protocol }) {
   const [rows, setRows] = useState<ClusterSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (protocol !== "ssh") return;
     let cancelled = false;
-    fetch("/api/console/clusters")
+    fetch(`/api/console/clusters${protocolQuery(protocol)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return (await r.json()) as { clusters: ClusterSummary[] };
@@ -26,7 +28,15 @@ export function Clusters({ onOpen }: { onOpen: (id: string) => void }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [protocol]);
+
+  if (protocol !== "ssh") {
+    return (
+      <div className="empty">
+        Clusters come from the ML pipeline, which only processes SSH sessions.
+      </div>
+    );
+  }
 
   if (error) {
     return (

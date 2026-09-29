@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import * as up from "@/lib/upstream";
 import { UpstreamError } from "@/lib/upstream";
+import { parseProtocol } from "@/lib/session-doc";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +14,10 @@ export async function GET(req: NextRequest) {
   const search = (p.get("q") ?? "").trim().toLowerCase();
   const baitOnly = p.get("bait") === "true";
   const action = p.get("action");
+  const protocol = parseProtocol(p.get("protocol"));
 
   try {
-    const page = await up.commandExport(after, Number.isFinite(limit) ? limit : 100);
+    const page = await up.commandExport(after, Number.isFinite(limit) ? limit : 100, protocol);
 
     const commands = page.commands.filter((c) => {
       if (baitOnly && !c.bait_hit) return false;

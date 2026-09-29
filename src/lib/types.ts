@@ -124,6 +124,16 @@ export interface Intelligence {
   recommended_actions: string[] | null;
 }
 
+export type Protocol = "ssh" | "telnet";
+
+export interface TelnetMeta {
+  negotiated: boolean;
+  client_options: number[];
+  terminal_type: string;
+  window_width: number;
+  window_height: number;
+}
+
 export interface SessionDetail {
   session_id: string;
   schema_version: string;
@@ -143,6 +153,7 @@ export interface SessionDetail {
   commands: Command[];
   bait_events: BaitEvent[];
   intelligence: Intelligence;
+  telnet: TelnetMeta | null;
 }
 
 export interface DailyRatePoint {
@@ -306,6 +317,7 @@ export interface SessionRow {
 export type SessionSort = "recent" | "duration" | "commands" | "bait" | "severity";
 
 export interface SessionQuery {
+  protocol?: Protocol;
   search?: string;
   classes?: string[];
   outcomes?: string[];
