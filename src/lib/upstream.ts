@@ -1,7 +1,7 @@
 import "server-only";
 
 import * as fx from "./fixtures";
-import { normaliseSession } from "./session-doc";
+import { normaliseSession, normaliseStats } from "./session-doc";
 import type {
   ExportCommandsResponse,
   ExportResponse,
@@ -122,7 +122,8 @@ async function orFixture<T>(live: () => Promise<T>, offline: () => T): Promise<T
 
 export function stats(protocol: Protocol = "ssh"): Promise<HoneypotStats> {
   return orFixture(
-    () => get<HoneypotStats>(withProtocol("/api/stats", protocol), { revalidate: 60, timeoutMs: 20_000 }),
+    async () =>
+      normaliseStats(await get<Record<string, unknown>>(withProtocol("/api/stats", protocol), { revalidate: 60, timeoutMs: 20_000 })),
     () => fx.stats,
   );
 }
@@ -139,7 +140,10 @@ export function sessions(limit = 50, offset = 0, protocol: Protocol = "ssh"): Pr
 export function feed(limit = 25, protocol: Protocol = "ssh"): Promise<SessionsResponse> {
   const l = Math.min(Math.max(limit, 1), 100);
   return orFixture(
-    () => get<SessionsResponse>(withProtocol(`/api/sessions?limit=${l}&offset=0`, protocol), { revalidate: 0 }),
+    async () => {
+      const page = await get<SessionsResponse>(withProtocol(`/api/sessions?limit=${l}&offset=0`, protocol), { revalidate: 0 });
+      return { ...page, sessions: page.sessions ?? [] };
+    },
     () => fx.feed(l),
   );
 }

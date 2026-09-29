@@ -1,4 +1,4 @@
-import type { AuthAttempt, BaitEvent, Command, Intelligence, Protocol, SessionDetail, TelnetMeta } from "./types";
+import type { AuthAttempt, BaitEvent, Command, HoneypotStats, Intelligence, Protocol, SessionDetail, TelnetMeta } from "./types";
 
 type Raw = Record<string, any>;
 
@@ -47,4 +47,17 @@ export function telnetOptionName(code: number): string {
 
 export function protocolQuery(protocol: Protocol, prefix: "?" | "&" = "?"): string {
   return protocol === "ssh" ? "" : `${prefix}protocol=${protocol}`;
+}
+
+export function normaliseStats(raw: Raw): HoneypotStats {
+  return {
+    ...raw,
+    top_ips: raw.top_ips ?? [],
+    top_usernames: raw.top_usernames ?? [],
+    top_passwords: raw.top_passwords ?? [],
+    top_credentials: raw.top_credentials ?? [],
+    ssh_banners: raw.ssh_banners ?? [],
+    coordinated_ips: raw.coordinated_ips ?? [],
+    hourly_distribution: raw.hourly_distribution ?? [],
+  } as HoneypotStats;
 }

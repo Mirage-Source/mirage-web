@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { normaliseSession, parseProtocol } from "./session-doc.ts";
+import { normaliseSession, normaliseStats, parseProtocol } from "./session-doc.ts";
 
 const sshDoc = {
   session_id: "s1",
@@ -64,5 +64,19 @@ describe("parseProtocol", () => {
   it("falls back to ssh for anything else", () => {
     assert.equal(parseProtocol("rdp"), "ssh");
     assert.equal(parseProtocol("telnet&x=1"), "ssh");
+  });
+});
+
+describe("normaliseStats", () => {
+  it("turns null lists into empty arrays and keeps counts", () => {
+    const s = normaliseStats({
+      total_sessions: 0, unique_ips: 0, sessions_last_24h: 0, sessions_last_7d: 0,
+      top_ips: null, top_usernames: null, top_passwords: null, top_credentials: null,
+      ssh_banners: null, coordinated_ips: [], hourly_distribution: null,
+    });
+    for (const k of ["top_ips", "top_usernames", "top_passwords", "top_credentials", "ssh_banners", "coordinated_ips", "hourly_distribution"] as const) {
+      assert.deepEqual(s[k], [], k);
+    }
+    assert.equal(s.total_sessions, 0);
   });
 });
